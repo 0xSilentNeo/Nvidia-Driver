@@ -1,0 +1,248 @@
+--- a/src/linuxkpi/include/net/mac80211.h
++++ b/src/linuxkpi/include/net/mac80211.h
+@@ -127,6 +127,9 @@
+ 	BSS_CHANGED_MLD_VALID_LINKS	= BIT_ULL(32),
+ 	BSS_CHANGED_MLD_TTLM		= BIT_ULL(33),
+ 	BSS_CHANGED_TPE			= BIT_ULL(34),
++#if defined(LKPI_MACOS)
++	BSS_CHANGED_NAN_LOCAL_SCHED	= BIT_ULL(36),
++#endif
+ };
+ 
+ /* 802.11 Figure 9-256 Suite selector format. [OUI(3), SUITE TYPE(1)] */
+@@ -535,7 +538,7 @@
+ 	"\11RESERVE_TAILROOM\12SPP_AMSDU"
+ 
+ struct ieee80211_key_conf {
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(LKPI_MACOS)
+ 	const struct ieee80211_key	*_k;		/* backpointer to net80211 */
+ #endif
+ 	atomic64_t			tx_pn;
+@@ -760,6 +763,9 @@
+ 
+ 	struct ieee80211_link_sta		deflink;
+ 	struct ieee80211_link_sta		*link[IEEE80211_MLD_MAX_NUM_LINKS];	/* rcu? */
++#if defined(LKPI_MACOS)
++	struct ieee80211_sta __rcu		*nmi;	/* NAN management interface station */
++#endif
+ 
+ 	/* Must stay last. */
+ 	uint8_t					drv_priv[0] __aligned(CACHE_LINE_SIZE);
+@@ -1110,6 +1116,9 @@
+ 	int (*start_nan)(struct ieee80211_hw *, struct ieee80211_vif *, struct cfg80211_nan_conf *);
+ 	int (*stop_nan)(struct ieee80211_hw *, struct ieee80211_vif *);
+ 	int (*nan_change_conf)(struct ieee80211_hw *, struct ieee80211_vif *, struct cfg80211_nan_conf *, uint32_t changes);
++#if defined(LKPI_MACOS)
++	int (*nan_peer_sched_changed)(struct ieee80211_hw *, struct ieee80211_sta *);
++#endif
+ 
+ /* #ifdef CONFIG_MAC80211_DEBUGFS */	/* Do not change depending on compile-time option. */
+ 	void (*sta_add_debugfs)(struct ieee80211_hw *, struct ieee80211_vif *, struct ieee80211_sta *, struct dentry *);
+@@ -2681,4 +2690,8 @@
+ 	return (false);
+ }
+ 
++#if defined(LKPI_MACOS)
++#include <lkpi/mac80211_compat.h>
++#endif
++
+ #endif	/* _LINUXKPI_NET_MAC80211_H */
+--- a/src/linuxkpi/include/net/cfg80211.h
++++ b/src/linuxkpi/include/net/cfg80211.h
+@@ -372,6 +372,7 @@
+ #define	NAN_DEV_CAPA_EXT_KEY_ID_SUPPORTED	0x2	/* b1 */
+ #define	NAN_DEV_CAPA_NDPE_SUPPORTED		0x8	/* b3 */
+ 
++#if !defined(LKPI_MACOS)
+ struct wiphy_nan_capa {
+ 	uint32_t			flags;				/* enum wiphy_nan_flags */
+ 	uint8_t				op_mode;
+@@ -379,6 +380,7 @@
+ 	uint8_t				n_antennas;			/* Tx/Rx bitmask, e.g., 0x22 */
+ 	uint16_t			max_channel_switch_time;
+ };
++#endif
+ 
+ struct cfg80211_ftm_responder_stats {
+ 		/* XXX TODO */
+@@ -1170,9 +1172,29 @@
+ 	struct timer_list			timer;
+ };
+ 
++#if defined(LKPI_MACOS)
++/* lkpi-macos: placed here because .phy embeds ieee80211_sta_he_cap */
++struct wiphy_nan_capa {
++	uint32_t			flags;				/* enum wiphy_nan_flags */
++	uint8_t				op_mode;
++	uint8_t				dev_capabilities;
++	uint8_t				n_antennas;			/* Tx/Rx bitmask, e.g., 0x22 */
++	uint16_t			max_channel_switch_time;
++	struct {
++		struct ieee80211_sta_ht_cap ht;
++		struct ieee80211_sta_vht_cap vht;
++		struct ieee80211_sta_he_cap he;
++	} phy;
++};
++#endif
++
+ struct wiphy {
+ 	struct mutex				mtx;
++#if defined(LKPI_MACOS)
++	struct device				dev;	/* embedded like Linux; parent is the PCI device */
++#else
+ 	struct device				*dev;
++#endif
+ 	struct mac_address			*addresses;
+ 	int					n_addresses;
+ 	uint32_t				flags;
+@@ -1360,14 +1382,22 @@
+ set_wiphy_dev(struct wiphy *wiphy, struct device *dev)
+ {
+ 
++#if defined(LKPI_MACOS)
++	wiphy->dev.parent = dev;
++#else
+ 	wiphy->dev = dev;
++#endif
+ }
+ 
+ static __inline struct device *
+ wiphy_dev(struct wiphy *wiphy)
+ {
+ 
++#if defined(LKPI_MACOS)
++	return (wiphy->dev.parent);
++#else
+ 	return (wiphy->dev);
++#endif
+ }
+ 
+ #define	wiphy_dereference(_w, _p)					\
+@@ -1816,8 +1846,13 @@
+ static __inline char *
+ wiphy_name(struct wiphy *wiphy)
+ {
++#if defined(LKPI_MACOS)
++	if (wiphy != NULL)
++		return dev_name(&wiphy->dev);
++#else
+ 	if (wiphy != NULL && wiphy->dev != NULL)
+ 		return dev_name(wiphy->dev);
++#endif
+ 	else {
+ 		IMPROVE("wlanNA");
+ 		return ("wlanNA");
+@@ -2368,11 +2403,11 @@
+ /* -------------------------------------------------------------------------- */
+ 
+ #define	wiphy_err(_wiphy, _fmt, ...)					\
+-    dev_err((_wiphy)->dev, _fmt, __VA_ARGS__)
++    dev_err(&(_wiphy)->dev, _fmt, ##__VA_ARGS__)
+ #define	wiphy_info(wiphy, fmt, ...)					\
+-    dev_info((wiphy)->dev, fmt, ##__VA_ARGS__)
++    dev_info(&(wiphy)->dev, fmt, ##__VA_ARGS__)
+ #define	wiphy_info_once(wiphy, fmt, ...)				\
+-    dev_info_once((wiphy)->dev, fmt, ##__VA_ARGS__)
++    dev_info_once(&(wiphy)->dev, fmt, ##__VA_ARGS__)
+ 
+ #ifndef LINUXKPI_NET80211
+ #define	ieee80211_channel		linuxkpi_ieee80211_channel
+--- a/src/linuxkpi/include/net/regulatory.h
++++ b/src/linuxkpi/include/net/regulatory.h
+@@ -31,7 +31,13 @@
+ #define	_LINUXKPI_NET_REGULATORY_H
+ 
+ enum environment_cap {
++#if defined(LKPI_MACOS)
++	ENVIRON_ANY		= 0,
++#endif
+ 	ENVIRON_INDOOR		= 1,	/* keep != 0 */
++#if defined(LKPI_MACOS)
++	ENVIRON_OUTDOOR		= 2,
++#endif
+ };
+ 
+ #define	REG_RULE(_begin, _end, _bw, _mag, _meirp, _flags)		\
+--- a/src/linuxkpi/include/linux/ieee80211.h
++++ b/src/linuxkpi/include/linux/ieee80211.h
+@@ -32,12 +32,16 @@
+ 
+ #include <sys/types.h>
+ #include <net80211/ieee80211.h>
++#include <net80211/_ieee80211.h>	/* lkpi-macos: IEEE80211_TID_SIZE */
++#include <net80211/ieee80211_crypto.h>	/* lkpi-macos: struct ieee80211_key */
++#include <net/ieee80211_radiotap.h>
+ 
+ #include <asm/unaligned.h>
+ #include <linux/kernel.h>
+ #include <linux/bitops.h>
+ #include <linux/bitfield.h>
+ #include <linux/if_ether.h>
++#include <linux/skbuff.h>	/* lkpi-macos: full sk_buff needed below */
+ 
+ /* linux_80211.c */
+ extern int linuxkpi_debug_80211;
+@@ -595,6 +599,20 @@
+ 		struct {
+ 			/* 9.4.1.11 Action field */
+ 			uint8_t		category;
++#if defined(LKPI_MACOS)
++			/* lkpi-macos: current Linux exposes the action code and the
++			 * ADDBA request body directly under u.action. */
++			union {
++			uint8_t		action_code;
++			struct {
++				uint8_t		action_code;
++				uint8_t		dialog_token;
++				__le16		capab;
++				__le16		timeout;
++				__le16		start_seq_num;
++				uint8_t		variable[0];
++			} __packed addba_req;
++#endif
+ 			/* 9.6.8 Public Action details */
+ 			union {
+ 				/* 9.6.2.5 TPC Report frame format */
+@@ -643,12 +661,19 @@
+ 					uint8_t variable[0];
+ 				} __packed wnm_timing_msr;
+ 			} u;
++#if defined(LKPI_MACOS)
++			};
++#endif
+ 		} __packed action;
+ 		DECLARE_FLEX_ARRAY(uint8_t, body);
+ 	} u;
+ } __packed __aligned(2);
+ 
++#if defined(LKPI_MACOS)
++#define	IEEE80211_MIN_ACTION_SIZE(type)	offsetofend(struct ieee80211_mgmt, u.action.type)
++#else
+ #define	IEEE80211_MIN_ACTION_SIZE	offsetof(struct ieee80211_mgmt, u.action.u)
++#endif
+ 
+ struct ieee80211_cts {		/* net80211::ieee80211_frame_cts */
+         __le16		frame_control;
+--- a/src/linuxkpi/include/linux/nl80211.h
++++ b/src/linuxkpi/include/linux/nl80211.h
+@@ -173,6 +173,9 @@
+ 	NL80211_IFTYPE_WDS,
+ 	NL80211_IFTYPE_OCB,
+ 	NL80211_IFTYPE_NAN,
++#if defined(LKPI_MACOS)
++	NL80211_IFTYPE_NAN_DATA,
++#endif
+ 
+ 	/* Keep this last. */
+ 	NUM_NL80211_IFTYPES
+@@ -247,6 +250,9 @@
+ 	NL80211_EXT_FEATURE_SAE_OFFLOAD_AP,
+ 
+ 	/* Keep this last. */
++#if defined(LKPI_MACOS)
++	NL80211_EXT_FEATURE_SECURE_NAN,
++#endif
+ 	NUM_NL80211_EXT_FEATURES
+ };
+ 

@@ -1,0 +1,4 @@
+# Upstream source of src/mt76 (do not edit by hand; see scripts/import-mt76.sh)
+url=https://github.com/openwrt/mt76
+commit=0936617dc529ff9da0385221d3fa6de732231177
+date=2026-10-28

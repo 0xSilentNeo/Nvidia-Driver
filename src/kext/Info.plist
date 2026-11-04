@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>MT7925</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.mt7925port.MT7925</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>MT7925</string>
+	<key>CFBundlePackageType</key>
+	<string>KEXT</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>MacOSX</string>
+	</array>
+	<key>IOKitPersonalities</key>
+	<dict>
+		<key>MT7925PCIe</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>org.mt7925port.MT7925</string>
+			<key>IOClass</key>
+			<string>MT7925PCIe</string>
+			<key>IOProviderClass</key>
+			<string>IOPCIDevice</string>
+			<!-- MT7925 (0x7925), MT7927 (0x0717, 0x7927, 0x6639, 0x0738), MT7928 (0x7928, 0x7935) -->
+			<key>IOPCIPrimaryMatch</key>
+			<string>0x792514c3 0x071714c3 0x792714c3 0x663914c3 0x073814c3 0x792814c3 0x793514c3</string>
+			<key>IOProbeScore</key>
+			<integer>2000</integer>
+			<key>IOMatchCategory</key>
+			<string>IODefaultMatchCategory</string>
+			<!-- Linux module parameters (module_param_named in mt7925/pci.c and
+			     regd.c).  Read in MT7925PCIe::applyParameters() and passed to
+			     lkpi_param_set(name, "0"/"1").  A boot-arg mt7925_<name>=<v>
+			     overrides the value here. -->
+			<key>Parameters</key>
+			<dict>
+				<key>disable_aspm</key>
+				<false/>
+				<key>disable_clc</key>
+				<false/>
+			</dict>
+		</dict>
+	</dict>
+	<key>OSBundleLibraries</key>
+	<dict>
+		<key>com.apple.iokit.IOPCIFamily</key>
+		<string>2.9</string>
+		<key>com.apple.kpi.bsd</key>
+		<string>20.0</string>
+		<key>com.apple.kpi.iokit</key>
+		<string>20.0</string>
+		<key>com.apple.kpi.libkern</key>
+		<string>20.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>20.0</string>
+		<!-- kernel_thread_start/thread_terminate/thread_deallocate are in
+		     com.apple.kpi.mach on current SDKs but several helpers the port
+		     may enable (cpu_number, thread_policy_set, PE_parse_boot_argn on
+		     older releases) are only exported through kpi.unsupported, so
+		     it is declared up front. -->
+		<key>com.apple.kpi.unsupported</key>
+		<string>20.0</string>
+	</dict>
+	<key>OSBundleRequired</key>
+	<string>Network-Root</string>
+	<key>OSBundleCompatibleVersion</key>
+	<string>1.0.0</string>
+</dict>
+</plist>

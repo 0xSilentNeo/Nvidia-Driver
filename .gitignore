@@ -1,0 +1,7 @@
+build/
+firmware/
+*.o
+*.kext/
+*.dSYM/
+.DS_Store
+tests/host/bin/
