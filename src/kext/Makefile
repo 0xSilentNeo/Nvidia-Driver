@@ -113,8 +113,9 @@ ARCH_FLAGS_x86_64 := -mno-red-zone
 ARCH_FLAGS_arm64e := -fno-ptrauth-intrinsics
 ARCH_FLAGS_arm64  :=
 
+CXXFLAGS_EXTRA ?=
 CXXFLAGS := $(COMMON_FLAGS) -std=gnu++17 -fapple-kext -fno-rtti -fno-exceptions \
-            -I$(KPI_INC) -Wno-unused-parameter
+            -I$(KPI_INC) -Wno-unused-parameter $(CXXFLAGS_EXTRA)
 # C: the Linux sources and the C LinuxKPI layer.
 CFLAGS   := $(COMMON_FLAGS) $(LKPI_CFLAGS) -I$(MT76_DIR)/mt7925 -Wno-unused-but-set-variable
 # C: the kext's own C files (kmod info, stubs, generated firmware table).
