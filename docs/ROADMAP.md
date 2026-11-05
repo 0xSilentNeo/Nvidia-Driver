@@ -11,9 +11,10 @@ when the behaviour was seen on a machine, not when the code was written.
 - [x] Write the LinuxKPI headers (120+ files) so that **all 28 driver files compile front-end clean** (`make check-headers`, zero warnings).
 - [x] Generate the Linux API inventory (`docs/LINUX_API_INVENTORY.md`).
 - [x] Define the OS boundary (`lkpi/os.h`) and the runtime init sequence (`lkpi/runtime.h`).
-- [ ] C runtime implementations: locks, jiffies, timers, workqueues, kthreads, tasklets, RCU, skbuff, page pool, NAPI, idr, PCI bus layer, DMA, devres, firmware, printk, debugfs stubs. *(in progress)*
-- [ ] IOKit kext shell: `MT7925PCIe` IOService, `lkpi/os.h` backend, Info.plist, Makefile. *(in progress)*
-- [ ] Host unit tests against the libc backend (`make host-tests`).
+- [x] C runtime implementations: locks, jiffies, timers, workqueues, kthreads, tasklets, RCU, skbuff, page pool, NAPI, idr, PCI bus layer, DMA, devres, firmware, printk, debugfs stubs.
+- [x] IOKit kext shell written: `MT7925PCIe` IOService, `lkpi/os.h` backend, Info.plist, Makefile (not yet compiled: needs a Mac).
+- [x] Host unit tests against the libc backend (`make host-tests`): 371 checks.
+- [x] Host integration test `tests/host/test_probe`: the **real `mt7925_pci_probe()`** runs against a modelled fake device through the whole C stack (PCI setup, firmware blob parsing, DMA rings, MCU commands with timeouts, clean remove).
 
 ## Phase 1 — Device bring-up
 

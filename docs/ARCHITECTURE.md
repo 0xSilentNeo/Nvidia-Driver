@@ -94,7 +94,13 @@ it.
 
 `make host-tests` builds the C layer against the libc backend and runs unit
 tests for lists, bit operations, bitfields, idr, skbuff, workqueues, timers,
-completions and kthreads.
+completions and kthreads.  `tests/host/test_probe` goes further and links the
+real driver: with a 60-line register model (ownership handshake, WFSYS reset,
+chip ID) the unmodified `mt7925_pci_probe()` runs through PCI setup, firmware
+feature parsing, DMA ring allocation and MCU initialisation on a developer
+machine, fails cleanly when no firmware answers, and detaches.  Set
+`LKPI_FIRMWARE_DIR` to a directory holding the MediaTek blobs
+(`scripts/fetch-firmware.sh`) to exercise the firmware parser.
 
 ## Design decisions worth knowing
 

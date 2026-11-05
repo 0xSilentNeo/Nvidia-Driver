@@ -26,6 +26,11 @@ LICENCE.mediatek
 for f in $FILES; do
 	mkdir -p "$DEST/$(dirname "$f")"
 	echo "fetching $f"
-	curl -sSfL -o "$DEST/$f" "$BASE/$f?h=$REF"
+	if ! curl -sSfL -o "$DEST/$f" "$BASE/$f?h=$REF"; then
+		case "$f" in
+		LICENCE.mediatek) echo "  (license text not found at $REF; see WHENCE in linux-firmware)";;
+		*) echo "  failed: $f"; exit 1;;
+		esac
+	fi
 done
 echo "firmware stored under $DEST"

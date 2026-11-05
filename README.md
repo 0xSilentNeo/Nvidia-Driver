@@ -54,7 +54,7 @@ On any machine with clang (no Apple SDK needed):
 make check-headers   # front-end compile of the driver + C layer, must be all ok
 make link-check      # compile to host objects, list symbols the kext must still supply
 make inventory       # regenerate docs/LINUX_API_INVENTORY.md
-make host-tests      # unit tests of the C layer against the libc os.h backend
+make host-tests      # unit tests + the real driver probe against a fake device
 ```
 
 On a Mac with the Xcode command line tools:

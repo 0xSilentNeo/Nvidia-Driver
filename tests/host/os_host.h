@@ -15,4 +15,8 @@ void *lkpi_host_pci_bar0(lkpi_os_pci_t p);
 void lkpi_host_pci_raise_irq(lkpi_os_pci_t p);
 
 extern int lkpi_host_log_level;
+
+/* Called after every 32-bit MMIO write; lets a test model register side effects. */
+typedef void (*lkpi_host_mmio_hook_t)(volatile void *addr, uint32_t val);
+extern lkpi_host_mmio_hook_t lkpi_host_mmio_write_hook;
 #endif

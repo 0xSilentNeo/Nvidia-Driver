@@ -536,8 +536,14 @@ void lkpi_os_timer_destroy(lkpi_os_timer_t t)
 }
 
 /* ------------------------------------------------------------------ MMIO */
+lkpi_host_mmio_hook_t lkpi_host_mmio_write_hook;
 uint32_t lkpi_os_mmio_read32(const volatile void *a) { return *(const volatile uint32_t *)a; }
-void lkpi_os_mmio_write32(volatile void *a, uint32_t v) { *(volatile uint32_t *)a = v; }
+void lkpi_os_mmio_write32(volatile void *a, uint32_t v)
+{
+	*(volatile uint32_t *)a = v;
+	if (lkpi_host_mmio_write_hook)
+		lkpi_host_mmio_write_hook((volatile void *)a, v);
+}
 uint16_t lkpi_os_mmio_read16(const volatile void *a) { return *(const volatile uint16_t *)a; }
 void lkpi_os_mmio_write16(volatile void *a, uint16_t v) { *(volatile uint16_t *)a = v; }
 uint8_t lkpi_os_mmio_read8(const volatile void *a) { return *(const volatile uint8_t *)a; }

@@ -36,7 +36,19 @@ endif
 
 .PHONY: all run clean
 
-all: $(BIN)/test_core $(BIN)/test_runtime
+# The probe test links the real driver objects (host-compiled) and the real
+# module list, and runs mt7925_pci_probe() against a modelled fake device.
+MT76_SRCS := $(addprefix $(MT76)/, $(shell $(MAKE) -s -C $(ROOT) print-MT76_SRCS))
+PROBE_LKPI_SRCS := $(filter-out $(ROOT)/src/linuxkpi/src/mt7925_nan_stubs.c, \
+                   $(wildcard $(ROOT)/src/linuxkpi/src/*.c))
+PROBE_CFLAGS := $(CFLAGS) -I$(MT76)/mt7925 -DCONFIG_MT76_CONNAC_LIB=1 -DCONFIG_MT792x_LIB=1 \
+                -DCONFIG_MT7925_COMMON=1 -DCONFIG_MT7925E=1 -DCONFIG_ACPI=1 -DCONFIG_IPV6=1 \
+                -Wno-unused-variable -Wno-visibility
+
+all: $(BIN)/test_core $(BIN)/test_runtime $(BIN)/test_probe
+
+$(BIN)/test_probe: test_probe.c os_host.c $(PROBE_LKPI_SRCS) $(ROOT)/src/linuxkpi/src/mt7925_nan_stubs.c $(MT76_SRCS) | $(BIN)
+	$(CLANG) $(PROBE_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(BIN):
 	mkdir -p $(BIN)
@@ -50,6 +62,7 @@ $(BIN)/test_runtime: test_runtime.c os_host.c test_modules_stub.c $(LKPI_SRCS) |
 run: all
 	./$(BIN)/test_core
 	./$(BIN)/test_runtime
+	LKPI_FIRMWARE_DIR=$(ROOT)/firmware ./$(BIN)/test_probe
 
 clean:
 	rm -rf $(BIN)
