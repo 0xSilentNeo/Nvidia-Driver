@@ -9,7 +9,8 @@
  * lazily created locks, a size header in front of every allocation.
  *
  * PCI/MMIO/DMA are backed by an in-memory fake device that tests program
- * through lkpi_host_pci_* (see os_host.h).
+ * through lkpi_host_pci_* (see os_host.h).  DMA bus addresses come from a
+ * 32-bit window and translate back to host memory with lkpi_host_dma_to_va().
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -643,26 +644,143 @@ void *lkpi_os_pci_get_priv(lkpi_os_pci_t p) { return p->priv; }
 void *lkpi_os_pci_provider(lkpi_os_pci_t p) { return p->provider; }
 
 /* ------------------------------------------------------------------- DMA */
+/*
+ * Bus addresses are handed out from a 32-bit window, like an IOMMU would,
+ * instead of being the host virtual address: the WFDMA descriptors carry a
+ * 32-bit buf0/desc_base (plus 4 high bits), so a 47-bit user-space VA would
+ * not survive the round trip through the driver's rings.  Every coherent
+ * allocation and streaming map gets its own page-aligned range; a device
+ * model translates back with lkpi_host_dma_to_va().
+ */
+#define DMA_WIN_BASE	0x10000000ULL	/* first bus address handed out */
+#define DMA_WIN_END	0xf0000000ULL	/* leave the top of the 4 GiB unused */
+
+struct dma_mapping {
+	uint64_t bus;
+	size_t len;		/* page-rounded */
+	void *va;
+};
+
+static pthread_mutex_t dma_lock = PTHREAD_MUTEX_INITIALIZER;
+static struct dma_mapping *dma_maps;
+static size_t dma_nmaps, dma_cap;
+static uint64_t dma_next = DMA_WIN_BASE;
+
+static bool dma_range_free(uint64_t bus, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < dma_nmaps; i++)
+		if (bus < dma_maps[i].bus + dma_maps[i].len && dma_maps[i].bus < bus + len)
+			return false;
+	return true;
+}
+
+/* Caller holds dma_lock.  Bump allocator with a wrap-around that skips live ranges. */
+static uint64_t dma_bus_alloc(void *va, size_t len)
+{
+	uint64_t bus;
+	int wrapped = 0;
+
+	len = (len + 4095) & ~(size_t)4095;
+	if (dma_nmaps == dma_cap) {
+		size_t ncap = dma_cap ? dma_cap * 2 : 256;
+		struct dma_mapping *n = realloc(dma_maps, ncap * sizeof(*n));
+		if (!n)
+			return 0;
+		dma_maps = n;
+		dma_cap = ncap;
+	}
+	for (;;) {
+		if (dma_next + len > DMA_WIN_END) {
+			if (wrapped++)
+				return 0;
+			dma_next = DMA_WIN_BASE;
+		}
+		bus = dma_next;
+		dma_next += len;
+		if (dma_range_free(bus, len))
+			break;
+	}
+	dma_maps[dma_nmaps].bus = bus;
+	dma_maps[dma_nmaps].len = len;
+	dma_maps[dma_nmaps].va = va;
+	dma_nmaps++;
+	return bus;
+}
+
+/* Caller holds dma_lock. */
+static void dma_bus_free(uint64_t bus)
+{
+	size_t i;
+
+	for (i = 0; i < dma_nmaps; i++)
+		if (dma_maps[i].bus == bus) {
+			dma_maps[i] = dma_maps[--dma_nmaps];
+			return;
+		}
+	fprintf(stderr, "lkpi dma: unmap of unknown bus address %#llx\n", (unsigned long long)bus);
+}
+
+void *lkpi_host_dma_to_va(uint64_t bus, size_t len)
+{
+	void *va = NULL;
+	size_t i;
+
+	pthread_mutex_lock(&dma_lock);
+	for (i = 0; i < dma_nmaps; i++) {
+		const struct dma_mapping *m = &dma_maps[i];
+
+		if (bus >= m->bus && bus + len <= m->bus + m->len) {
+			va = (uint8_t *)m->va + (bus - m->bus);
+			break;
+		}
+	}
+	pthread_mutex_unlock(&dma_lock);
+	return va;
+}
+
 void *lkpi_os_dma_alloc_coherent(lkpi_os_pci_t p, size_t size, uint64_t mask, lkpi_os_dma_addr_t *bus)
 {
 	void *va = lkpi_os_alloc_pages(size, true);
 	(void)p; (void)mask;
 	if (!va)
 		return NULL;
-	*bus = (lkpi_os_dma_addr_t)(uintptr_t)va;
+	pthread_mutex_lock(&dma_lock);
+	*bus = dma_bus_alloc(va, size);
+	pthread_mutex_unlock(&dma_lock);
+	if (!*bus) {
+		lkpi_os_free_pages(va, size);
+		return NULL;
+	}
 	return va;
 }
 void lkpi_os_dma_free_coherent(lkpi_os_pci_t p, size_t size, void *va, lkpi_os_dma_addr_t bus)
 {
-	(void)p; (void)bus;
+	(void)p;
+	pthread_mutex_lock(&dma_lock);
+	dma_bus_free(bus);
+	pthread_mutex_unlock(&dma_lock);
 	lkpi_os_free_pages(va, size);
 }
 lkpi_os_dma_addr_t lkpi_os_dma_map(lkpi_os_pci_t p, void *va, size_t len, int dir, uint64_t mask)
 {
-	(void)p; (void)len; (void)dir; (void)mask;
-	return (lkpi_os_dma_addr_t)(uintptr_t)va;
+	uint64_t bus;
+	(void)p; (void)dir; (void)mask;
+	/* The bus range starts at the page containing va so that bus % 4096 == va % 4096. */
+	pthread_mutex_lock(&dma_lock);
+	bus = dma_bus_alloc((void *)((uintptr_t)va & ~(uintptr_t)4095),
+			    len + ((uintptr_t)va & 4095));
+	pthread_mutex_unlock(&dma_lock);
+	return bus ? bus + ((uintptr_t)va & 4095) : 0;
 }
-void lkpi_os_dma_unmap(lkpi_os_pci_t p, lkpi_os_dma_addr_t a, size_t len, int dir) { (void)p; (void)a; (void)len; (void)dir; }
+void lkpi_os_dma_unmap(lkpi_os_pci_t p, lkpi_os_dma_addr_t a, size_t len, int dir)
+{
+	(void)p; (void)len; (void)dir;
+	pthread_mutex_lock(&dma_lock);
+	dma_bus_free(a & ~(uint64_t)4095);
+	pthread_mutex_unlock(&dma_lock);
+}
 void lkpi_os_dma_sync(lkpi_os_pci_t p, lkpi_os_dma_addr_t a, size_t len, int dir, bool for_cpu)
 {
 	(void)p; (void)a; (void)len; (void)dir; (void)for_cpu;

@@ -16,6 +16,12 @@ void lkpi_host_pci_raise_irq(lkpi_os_pci_t p);
 
 extern int lkpi_host_log_level;
 
+/*
+ * Bus -> host address for a DMA mapping made through the os.h DMA calls
+ * (coherent or streaming).  NULL when [bus, bus + len) is not mapped.
+ */
+void *lkpi_host_dma_to_va(uint64_t bus, size_t len);
+
 /* Called after every 32-bit MMIO write; lets a test model register side effects. */
 typedef void (*lkpi_host_mmio_hook_t)(volatile void *addr, uint32_t val);
 extern lkpi_host_mmio_hook_t lkpi_host_mmio_write_hook;

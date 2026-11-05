@@ -5,6 +5,8 @@
 #
 # test_core    : header-only primitives (lists, bitops, bitfields, byteorder)
 # test_runtime : src/linuxkpi/src/*.c against the libc os.h backend
+# test_probe   : the real mt7925 driver probed against the software device
+#                model in mt7925_model.c (firmware bring-up included)
 #
 CLANG   ?= clang
 ROOT    := ../..
@@ -47,7 +49,7 @@ PROBE_CFLAGS := $(CFLAGS) -I$(MT76)/mt7925 -DCONFIG_MT76_CONNAC_LIB=1 -DCONFIG_M
 
 all: $(BIN)/test_core $(BIN)/test_runtime $(BIN)/test_probe
 
-$(BIN)/test_probe: test_probe.c os_host.c $(PROBE_LKPI_SRCS) $(ROOT)/src/linuxkpi/src/mt7925_nan_stubs.c $(MT76_SRCS) | $(BIN)
+$(BIN)/test_probe: test_probe.c mt7925_model.c os_host.c $(PROBE_LKPI_SRCS) $(ROOT)/src/linuxkpi/src/mt7925_nan_stubs.c $(MT76_SRCS) | $(BIN)
 	$(CLANG) $(PROBE_CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(BIN):

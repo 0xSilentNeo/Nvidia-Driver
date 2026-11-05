@@ -14,13 +14,15 @@ when the behaviour was seen on a machine, not when the code was written.
 - [x] C runtime implementations: locks, jiffies, timers, workqueues, kthreads, tasklets, RCU, skbuff, page pool, NAPI, idr, PCI bus layer, DMA, devres, firmware, printk, debugfs stubs.
 - [x] IOKit kext shell written: `MT7925PCIe` IOService, `lkpi/os.h` backend, Info.plist, Makefile (not yet compiled: needs a Mac).
 - [x] Host unit tests against the libc backend (`make host-tests`): 371 checks.
-- [x] Host integration test `tests/host/test_probe`: the **real `mt7925_pci_probe()`** runs against a modelled fake device through the whole C stack (PCI setup, firmware blob parsing, DMA rings, MCU commands with timeouts, clean remove).
+- [x] Host integration test `tests/host/test_probe`: the **real `mt7925_pci_probe()`** runs against a modelled fake device through the whole C stack.
+- [x] Software MCU/DMA model (`tests/host/mt7925_model.c`): answers the 18 bring-up commands over the real TX/RX rings and interrupts, so firmware download (1.27 MB in 314 chunks), NIC capability, EFUSE and `ieee80211_register_hw` all complete on a developer machine in about 5 s, with a clean remove. Valgrind clean.
 
 ## Phase 1 — Device bring-up
 
 Goal: `mt7925_pci_probe()` runs to completion inside the kext.
 
 - [ ] Kext builds with Xcode command line tools on an Intel Mac / Hackintosh (macOS 11–15).
+- [ ] Kext `stop()` quiesces the device (wait for runtime PM to hand the firmware ownership back) before `lkpi_pci_detach()`: upstream `mt7925e_unregister_device` cancels `pm.ps_work` before the TX NAPI poll that can re-arm it (found by the host model under valgrind).
 - [ ] Kext loads, matches `14c3:7925` (and 0717/7927/6639/0738/7928/7935), maps BAR0, logs `ASIC revision: 7925xxxx`.
 - [ ] MSI interrupt fires and reaches `mt792x_irq_handler` → `mt792x_irq_tasklet`.
 - [ ] DMA rings allocated (`mt7925_dma_init`), coherent and streaming mappings verified with VT-d enabled and disabled.

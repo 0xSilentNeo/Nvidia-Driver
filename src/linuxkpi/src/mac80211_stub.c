@@ -24,6 +24,8 @@
 #include <net/cfg80211.h>
 
 int linuxkpi_debug_80211;
+/* Number of ieee80211_register_hw() calls that reached the stub; for host tests. */
+int lkpi_stub_hw_registered;
 
 /* mac80211 exports these LLC/SNAP headers for the 802.3 <-> 802.11 conversion. */
 const unsigned char rfc1042_header[] __aligned(2) = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
@@ -182,6 +184,7 @@ int linuxkpi_ieee80211_ifattach(struct ieee80211_hw *hw)
 	struct lkpi_stub_hw *lhw = HW_TO_LHW(hw);
 
 	lhw->registered = true;
+	lkpi_stub_hw_registered++;
 	pr_info("mac80211-stub: hw registered (no 802.11 stack yet): queues %u, "
 		"max_rates %u, max_rate_tries %u, extra_tx_headroom %u, vif_data_size %zu, "
 		"sta_data_size %zu, chanctx_data_size %zu, txq_data_size %zu, "
