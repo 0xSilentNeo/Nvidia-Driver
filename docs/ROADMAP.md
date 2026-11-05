@@ -51,6 +51,8 @@ Design: `docs/PHASE3_NET80211.md`.
 
 ## Phase 4 — Native macOS integration
 
+Design: `docs/PHASE4_IO80211.md`.
+
 - [ ] `IO80211Controller`/`IO80211Interface` subclass (reverse-engineered private interface, as AirportItlwm does) so the device is an AirPort interface: menu bar, System Settings Wi-Fi pane, `wdutil`, Location Services.
 - [ ] Apple's `airportd` drives scan/associate through `APPLE80211_IOC_*`; map to net80211.
 - [ ] Country code and regulatory from the firmware CLC tables mapped to Apple's expectations.
