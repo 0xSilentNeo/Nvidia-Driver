@@ -1,0 +1,5 @@
+# FreeBSD net80211 vendored by scripts/import-net80211.sh (do not edit by hand)
+url=https://github.com/freebsd/freebsd-src
+commit=b138d017c70421e9d074096fcc3ac676f7e1c846
+date=2026-11-04
+layout=upstream/ (verbatim sys/net80211)

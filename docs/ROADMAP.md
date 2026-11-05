@@ -38,7 +38,11 @@ Goal: `mt7925_pci_probe()` runs to completion inside the kext.
 
 ## Phase 3 — 802.11 stack
 
-- [ ] Port FreeBSD net80211 (BSD-2) onto an mbuf/ifnet shim (XNU has a public `mbuf_t` KPI).
+Design: `docs/PHASE3_NET80211.md`.
+
+- [x] Vendor FreeBSD net80211 (`src/net80211/upstream`, pinned) and the BSD support files (`sys/queue.h`, `if_media.h`, rijndael AES).
+- [ ] `bsdkpi`: FreeBSD kernel API on LinuxKPI; the station-mode net80211 set compiles front-end clean (`make check-net80211`). *(in progress)*
+
 - [ ] Adapt FreeBSD's `linux_80211.c` (mac80211 → net80211 glue, already vendored in `src/lkpi80211/`) to that stack.
 - [ ] Scan: results visible through a debug IOUserClient tool.
 - [ ] Association to an open network, then WPA2-PSK and WPA3-SAE (SAE is done in the stack, 4-way handshake in kernel like FreeBSD).
