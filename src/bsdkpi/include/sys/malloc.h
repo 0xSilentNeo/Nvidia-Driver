@@ -37,7 +37,7 @@ struct malloc_type {
 #undef MALLOC_DECLARE
 #define MALLOC_DECLARE(type)	extern struct malloc_type type[1]
 #define MALLOC_DEFINE(type, shortdesc, longdesc)			\
-	struct malloc_type type[1] = {					\
+	struct malloc_type type[1] __attribute__((used)) = {		\
 		{ (shortdesc), (longdesc), 0, 0 }			\
 	}
 

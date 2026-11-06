@@ -16,6 +16,9 @@
 #include <sys/_callout.h>
 #include <sys/stdarg.h>
 
+struct proc;
+struct thread;
+
 #define TASKQUEUE_NAMELEN	32
 #define TASKQUEUE_FAIL_IF_PENDING	(1 << 0)
 #define TASKQUEUE_FAIL_IF_CANCELING	(1 << 1)
@@ -43,7 +46,7 @@ int	taskqueue_enqueue(struct taskqueue *queue, struct task *task);
 int	taskqueue_enqueue_flags(struct taskqueue *queue, struct task *task,
 	    int flags);
 int	taskqueue_enqueue_timeout(struct taskqueue *queue,
-	    struct timeout_task *timeout_task, int ticks);
+	    struct timeout_task *timeout_task, int to_ticks);
 int	taskqueue_enqueue_timeout_sbt(struct taskqueue *queue,
 	    struct timeout_task *timeout_task, sbintime_t sbt, sbintime_t pr,
 	    int flags);

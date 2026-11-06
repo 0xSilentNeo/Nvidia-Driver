@@ -113,8 +113,14 @@
 #ifndef __always_inline
 #define __always_inline	inline __attribute__((always_inline))
 #endif
+/*
+ * FreeBSD kernel printf has %D (hex dump) and %b (bit field) conversions;
+ * clang checks them with the freebsd_kprintf format kind, and the shim's
+ * printf()/log() implement them (src/printf.c).  lkpi/bsd.h's plain printf
+ * variant is only seen by translation units that never include this file.
+ */
 #ifndef __printflike
-#define __printflike(a, b) __attribute__((format(printf, a, b)))
+#define __printflike(a, b) __attribute__((format(freebsd_kprintf, a, b)))
 #endif
 #ifndef __scanflike
 #define __scanflike(a, b) __attribute__((format(scanf, a, b)))

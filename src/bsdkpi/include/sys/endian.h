@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * sys/endian.h - byte order helpers.  Little-endian hosts only (x86-64,
- * arm64); lkpi/bsd.h already provides the hto*/*toh macros as constant
- * expressions, this adds FreeBSD's bswap and the enc/dec family.
+ * arm64); lkpi/bsd.h already provides the htoleNN()/leNNtoh() macros as
+ * constant expressions, this adds FreeBSD's bswap and the enc/dec family.
  */
 #ifndef _BSDKPI_SYS_ENDIAN_H_
 #define _BSDKPI_SYS_ENDIAN_H_

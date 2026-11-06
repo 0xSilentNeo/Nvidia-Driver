@@ -90,6 +90,7 @@
 #define EINTEGRITY	97000
 #define ELAST		97000
 /* pseudo-errors returned inside the kernel */
+#define ERESTART	(-1)
 #define EJUSTRETURN	(-2)
 #define ENOIOCTL	(-3)
 #define EDIRIOCTL	(-4)

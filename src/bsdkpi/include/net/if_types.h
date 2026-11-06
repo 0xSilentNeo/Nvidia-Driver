@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: MIT */
+#ifndef _BSDKPI_NET_IF_TYPES_H_
+#define _BSDKPI_NET_IF_TYPES_H_
+typedef enum {
+	IFT_OTHER	= 0x1,
+	IFT_ETHER	= 0x6,
+	IFT_ISO88023	= 0x7,
+	IFT_ISO88025	= 0x9,
+	IFT_FDDI	= 0xf,
+	IFT_PPP		= 0x17,
+	IFT_LOOP	= 0x18,
+	IFT_SLIP	= 0x1c,
+	IFT_PARA	= 0x22,
+	IFT_ATM		= 0x25,
+	IFT_IEEE80211	= 0x47,
+	IFT_GIF		= 0xf0,
+	IFT_FAITH	= 0xf2,
+	IFT_STF		= 0xd7,
+	IFT_L2VLAN	= 0x87,
+	IFT_IEEE8023ADLAG = 0x88,
+	IFT_IEEE1394	= 0x90,
+	IFT_BRIDGE	= 0xd1,
+	IFT_INFINIBAND	= 0xc7,
+	IFT_INFINIBANDLAG = 0xc8,
+	IFT_ENC		= 0xf4,
+	IFT_PFLOG	= 0xf6,
+	IFT_PFSYNC	= 0xf7,
+	IFT_USB		= 0xa0,
+} ifType;
+#endif

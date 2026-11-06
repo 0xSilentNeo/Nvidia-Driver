@@ -145,10 +145,16 @@ int	ppsratecheck(struct timeval *lasttime, int *curpps, int maxpps);
 int	ratecheck(struct timeval *lasttime, const struct timeval *mininterval);
 int	tvtohz(struct timeval *tv);
 
-#define MSEC_2_TICKS(m)	max(1, (uint32_t)((hz == 1000) ? (m) : ((uint64_t)(m) * (uint64_t)hz) / (uint64_t)1000))
-#define TICKS_2_MSEC(t)	max(1, (uint32_t)(hz == 1000) ? (t) : (((uint64_t)(t) * (uint64_t)1000) / (uint64_t)hz))
-#define TICKS_2_USEC(t)	max(1, (uint32_t)(hz == 1000) ? (t) * 1000 : (((uint64_t)(t) * (uint64_t)1000000) / (uint64_t)hz))
-#define USEC_2_TICKS(u)	max(1, (uint32_t)((hz == 1000) ? ((u) / 1000) : ((uint64_t)(u) * (uint64_t)hz) / (uint64_t)1000000))
+/* FreeBSD's versions use the u_int max(); the result type is u_int. */
+static __inline u_int
+bsdkpi_umax(u_int a, u_int b)
+{
+	return (a > b ? a : b);
+}
+#define MSEC_2_TICKS(m)	bsdkpi_umax(1, (uint32_t)((hz == 1000) ? (m) : ((uint64_t)(m) * (uint64_t)hz) / (uint64_t)1000))
+#define TICKS_2_MSEC(t)	bsdkpi_umax(1, (uint32_t)((hz == 1000) ? (t) : (((uint64_t)(t) * (uint64_t)1000) / (uint64_t)hz)))
+#define TICKS_2_USEC(t)	bsdkpi_umax(1, (uint32_t)((hz == 1000) ? (t) * 1000 : (((uint64_t)(t) * (uint64_t)1000000) / (uint64_t)hz)))
+#define USEC_2_TICKS(u)	bsdkpi_umax(1, (uint32_t)((hz == 1000) ? ((u) / 1000) : ((uint64_t)(u) * (uint64_t)hz) / (uint64_t)1000000))
 
 extern int hz;
 #endif /* _BSDKPI_SYS_TIME_H_ */

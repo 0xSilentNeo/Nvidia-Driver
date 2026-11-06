@@ -40,6 +40,9 @@
 
 #define AES_BLOCK_LEN 16
 
+#if defined(LKPI_MACOS)
+#undef BIT	/* LinuxKPI's linux/bits.h version */
+#endif
 #define BIT(x)	(1U << (x))
 
 static __inline void

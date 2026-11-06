@@ -30,16 +30,26 @@ extern int tick;
  */
 #define ticks			((int)jiffies)
 
-/* printf(9) family goes to printk(); the KERN_* prefix is optional. */
-#define printf(...)		printk(__VA_ARGS__)
-#define vprintf(fmt, ap)	vprintk((fmt), (ap))
-#define uprintf(...)		printk(__VA_ARGS__)
-#define tprintf(p, pri, ...)	printk(__VA_ARGS__)
+/*
+ * printf(9) family: formatted by the shim's kvprintf (FreeBSD's %D, %b and
+ * %r conversions included) and handed to printk() one line at a time.
+ */
+int	bsdkpi_printf(const char *fmt, ...) __printflike(1, 2);
+int	bsdkpi_vprintf(const char *fmt, va_list ap) __printflike(1, 0);
+int	bsdkpi_snprintf(char *buf, size_t size, const char *fmt, ...) __printflike(3, 4);
+int	bsdkpi_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) __printflike(3, 0);
+int	bsdkpi_sprintf(char *buf, const char *fmt, ...) __printflike(2, 3);
+int	bsdkpi_vsprintf(char *buf, const char *fmt, va_list ap) __printflike(2, 0);
+#define printf(...)		bsdkpi_printf(__VA_ARGS__)
+#define vprintf(fmt, ap)	bsdkpi_vprintf((fmt), (ap))
+#define uprintf(...)		bsdkpi_printf(__VA_ARGS__)
+#define tprintf(p, pri, ...)	bsdkpi_printf(__VA_ARGS__)
+/* snprintf and friends: the libc/libkern ones are fine for the formats
+ * net80211 uses with them; the bsdkpi_ variants add %D/%b when needed. */
 void	bsdkpi_log(int level, const char *fmt, ...) __printflike(2, 3);
-void	bsdkpi_vlog(int level, const char *fmt, va_list ap);
+void	bsdkpi_vlog(int level, const char *fmt, va_list ap) __printflike(2, 0);
 #define log(level, ...)		bsdkpi_log((level), __VA_ARGS__)
 #define vlog(level, fmt, ap)	bsdkpi_vlog((level), (fmt), (ap))
-void	bsdkpi_kassert_panic(const char *fmt, ...) __printflike(1, 2);
 
 #define critical_enter()	do { } while (0)
 #define critical_exit()		do { } while (0)
@@ -126,9 +136,9 @@ get_cyclecount(void)
 
 /* bcopy/bzero/bcmp are declared by <string.h> on both hosts (libkern/libc). */
 
-int	kvprintf(char const *, void (*)(int, void *), void *, int, va_list)
-	    __printflike(1, 0);
-#define sprintf_nocheck	sprintf
+/* kvprintf(9): the formatter behind all of the above. */
+int	kvprintf(char const *fmt, void (*func)(int, void *), void *arg,
+	    int radix, va_list ap) __printflike(1, 0);
 
 struct malloc_type;
 struct thread;

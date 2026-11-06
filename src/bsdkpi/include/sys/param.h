@@ -37,6 +37,12 @@
 #define NBBY		8
 #define NBPW		sizeof(int)
 
+/* Bit map related macros. */
+#define setbit(a, i)	(((unsigned char *)(a))[(i) / NBBY] |= 1 << ((i) % NBBY))
+#define clrbit(a, i)	(((unsigned char *)(a))[(i) / NBBY] &= ~(1 << ((i) % NBBY)))
+#define isset(a, i)	(((const unsigned char *)(a))[(i) / NBBY] & (1 << ((i) % NBBY)))
+#define isclr(a, i)	((((const unsigned char *)(a))[(i) / NBBY] & (1 << ((i) % NBBY))) == 0)
+
 #define CMASK		022
 #define NODEV		(dev_t)(-1)
 
@@ -84,15 +90,15 @@
 #ifndef nitems
 #define nitems(x)	(sizeof((x)) / sizeof((x)[0]))
 #endif
-#ifndef rounddown
+/* linux/math.h has statement-expression versions; FreeBSD code wants
+ * these usable in constant expressions. */
+#undef rounddown
 #define rounddown(x, y)	(((x) / (y)) * (y))
-#endif
 #ifndef rounddown2
 #define rounddown2(x, y) ((x) & ~((y) - 1))
 #endif
-#ifndef roundup
+#undef roundup
 #define roundup(x, y)	((((x) + ((y) - 1)) / (y)) * (y))
-#endif
 #ifndef roundup2
 #define roundup2(x, y)	(((x) + ((y) - 1)) & (~((y) - 1)))
 #endif

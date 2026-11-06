@@ -185,6 +185,9 @@ chancompar(const void *a, const void *b)
 /*
  * Insertion sort.
  */
+#if defined(LKPI_MACOS)
+#undef swap	/* LinuxKPI's linux/minmax.h version */
+#endif
 #define swap(_a, _b, _size) {			\
 	uint8_t *s = _b;			\
 	int i = _size;				\

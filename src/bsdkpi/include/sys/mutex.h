@@ -80,7 +80,7 @@ struct mtx_args {
 	SYSINIT(name##_mtx_sysinit, SI_SUB_LOCK, SI_ORDER_MIDDLE,	\
 	    mtx_sysinit, &name##_args);					\
 	SYSUNINIT(name##_mtx_sysuninit, SI_SUB_LOCK, SI_ORDER_MIDDLE,	\
-	    _mtx_destroy, __DEVOLATILE(void *, &(mtx)))
+	    _mtx_destroy, (void *)(mtx))
 void	_mtx_destroy(void *arg);
 
 #define MTX_SYSINIT_FLAGS(name, mtx, desc, opts, flags) MTX_SYSINIT(name, mtx, desc, opts)

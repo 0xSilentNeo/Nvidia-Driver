@@ -1,0 +1,24 @@
+--- a/src/net80211/upstream/ieee80211_crypto_gcm.c
++++ b/src/net80211/upstream/ieee80211_crypto_gcm.c
+@@ -40,6 +40,9 @@
+ 
+ #define AES_BLOCK_LEN 16
+ 
++#if defined(LKPI_MACOS)
++#undef BIT	/* LinuxKPI's linux/bits.h version */
++#endif
+ #define BIT(x)	(1U << (x))
+ 
+ static __inline void
+--- a/src/net80211/upstream/ieee80211_regdomain.c
++++ b/src/net80211/upstream/ieee80211_regdomain.c
+@@ -185,6 +185,9 @@
+ /*
+  * Insertion sort.
+  */
++#if defined(LKPI_MACOS)
++#undef swap	/* LinuxKPI's linux/minmax.h version */
++#endif
+ #define swap(_a, _b, _size) {			\
+ 	uint8_t *s = _b;			\
+ 	int i = _size;				\

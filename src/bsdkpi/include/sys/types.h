@@ -17,7 +17,27 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+/*
+ * Every LinuxKPI header the shim builds on is pulled in here, first, so
+ * that the FreeBSD macros that share a name (ALIGN, roundup, LIST_HEAD,
+ * ...) are defined afterwards and win for the rest of the translation
+ * unit.  LinuxKPI headers included again later are guarded no-ops.
+ */
 #include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/slab.h>
+#include <linux/mutex.h>
+#include <linux/spinlock.h>
+#include <linux/rcupdate.h>
+#include <linux/jiffies.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
+#include <linux/random.h>
+#include <linux/delay.h>
+#include <lkpi/bsd.h>
+#undef LIST_HEAD		/* linux/list.h's one-argument form */
+#include <sys/queue.h>		/* FreeBSD's LIST_HEAD(name, type) */
 
 #if !defined(__APPLE__)
 /* glibc defines these under __USE_MISC and records it with these guards;
@@ -70,11 +90,12 @@ typedef uint32_t	__accmode_t;
 typedef __accmode_t	accmode_t;
 typedef int		lwpid_t;
 
-#ifndef _BSDKPI_HAVE_STRUCT_THREAD
 struct thread;
 struct proc;
 struct ucred;
 struct malloc_type;
-#endif
+struct sbuf;
+struct mbuf;
+struct ifnet;
 
 #endif /* _BSDKPI_SYS_TYPES_H_ */

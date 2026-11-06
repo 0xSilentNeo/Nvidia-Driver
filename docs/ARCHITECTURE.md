@@ -67,6 +67,13 @@ IOKit type.  That keeps the two halves independently compilable and reviewable.
   embedded `struct device` in `struct wiphy` (Linux layout), the current
   action-frame layout, EML capability masks, NAN enumerators, and
   `lkpi/mac80211_compat.h` for API that FreeBSD does not have yet.
+* `scripts/import-net80211.sh` vendors FreeBSD's net80211 into
+  `src/net80211/upstream` (the `<net80211/...>` headers the LinuxKPI 802.11
+  headers include resolve there through the `src/net80211/net80211` link)
+  together with the BSD support files under `src/bsdkpi`.  The
+  `#if defined(LKPI_MACOS)` hunks are in `patches/0003-*.patch`; the FreeBSD
+  kernel API it needs is `src/bsdkpi` (docs/PHASE3_NET80211.md), checked by
+  `make check-net80211`.
 * `scripts/regen-patches.sh` rebuilds the patch series from the current tree,
   so re-importing a newer upstream is: import, apply-patches, fix conflicts,
   regen-patches, `make check-headers`.

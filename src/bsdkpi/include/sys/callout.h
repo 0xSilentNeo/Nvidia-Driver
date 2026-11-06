@@ -34,7 +34,7 @@ struct callout {
 	int			c_time;		/* ticks at arming time */
 };
 
-#define CALLOUT_LOCAL_ALLOC	0x0001
+#define CALLOUT_TRYLOCK		0x0001
 #define CALLOUT_ACTIVE		0x0002
 #define CALLOUT_PENDING		0x0004
 #define CALLOUT_MPSAFE		0x0008

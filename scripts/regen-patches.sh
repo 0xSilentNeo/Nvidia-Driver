@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 #
 # Regenerate patches/*.patch from the differences between the pinned upstream
-# trees and our vendored copies.  Run after editing anything under src/mt76 or
-# the FreeBSD-derived headers so that scripts/import-*.sh + apply-patches.sh
-# reproduce the tree exactly.
+# trees and our vendored copies.  Run after editing anything under src/mt76,
+# the FreeBSD-derived headers or src/net80211/upstream so that
+# scripts/import-*.sh + apply-patches.sh reproduce the tree exactly.
 #
 # Usage: scripts/regen-patches.sh [/path/to/mt76.git] [/path/to/freebsd-src]
 set -eu
@@ -47,10 +47,14 @@ for f in net/mac80211.h net/cfg80211.h net/regulatory.h linux/ieee80211.h linux/
 	diff -u --label "a/src/linuxkpi/include/$f" --label "b/src/linuxkpi/include/$f" "$LK/$f" "$INC/$f" \
 	    >> "$ROOT/patches/0002-freebsd-80211-headers-lkpi-macos.patch" || true
 done
-for f in ieee80211.h ieee80211_crypto.h _ieee80211.h; do
-	diff -u --label "a/src/linuxkpi/include/net80211/$f" --label "b/src/linuxkpi/include/net80211/$f" \
-	    "$FB_SRC/sys/net80211/$f" "$INC/net80211/$f" \
-	    >> "$ROOT/patches/0002-freebsd-80211-headers-lkpi-macos.patch" || true
+
+# 0003: FreeBSD net80211 adaptations (#if defined(LKPI_MACOS) hunks only).
+: > "$ROOT/patches/0003-net80211-lkpi-macos.patch"
+for f in "$ROOT"/src/net80211/upstream/*.[ch]; do
+	b=$(basename "$f")
+	diff -u --label "a/src/net80211/upstream/$b" --label "b/src/net80211/upstream/$b" \
+	    "$FB_SRC/sys/net80211/$b" "$f" \
+	    >> "$ROOT/patches/0003-net80211-lkpi-macos.patch" || true
 done
 for p in "$ROOT/patches"/*.patch; do
 	[ -s "$p" ] || rm -f "$p"
