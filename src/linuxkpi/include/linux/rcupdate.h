@@ -42,7 +42,7 @@
 #define rcu_dereference_bh(p)		rcu_dereference(p)
 #define rcu_dereference_sched(p)	rcu_dereference(p)
 #define rcu_dereference_check(p, c)	rcu_dereference(p)
-#define rcu_dereference_protected(p, c)	((typeof(*p) *)(p))
+#define rcu_dereference_protected(p, c)	((void)(c), (typeof(*p) *)(p))
 #define rcu_dereference_raw(p)		rcu_dereference(p)
 #define rcu_dereference_raw_check(p)	rcu_dereference(p)
 #define rcu_access_pointer(p)		((typeof(*p) *)READ_ONCE(p))

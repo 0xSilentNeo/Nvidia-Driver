@@ -121,6 +121,27 @@ Rules the shim relies on:
   `rt_ifmsg`, `if_link_state_change`, `ether_ifattach/detach` and
   `if_setlladdr` call the `bsdkpi_ifnet_hooks` the IO80211 layer installs.
 
+Link-level proof (`make link-check-net80211`): the 29 net80211 files,
+`net80211_stubs.c`, the 11 bsdkpi sources and the 3 rijndael files compile
+to 44 host objects with no duplicate strong symbols; the 55 symbols they
+leave undefined are all provided by `src/linuxkpi/src` (work queues,
+timers, locks, RCU, `printk`, `jiffies`), `lkpi/os.h` or libkern.  Nothing
+is left for the glue to *define*.  What the later layers must still *do*:
+
+* `linux_80211.c` (milestone 2) supplies the driver side net80211 calls
+  into through function pointers: `ic_vap_create/ic_vap_delete`,
+  `ic_transmit`, `ic_raw_xmit`, `ic_parent`, `ic_scan_start/end`,
+  `ic_set_channel`, `ic_newassoc`, `iv_key_alloc/set/delete`, ... and calls
+  `ieee80211_ifattach()` with a filled-in `struct ieee80211com`.
+* The runtime calls `bsdkpi_init()` after `lkpi_runtime_init()` (not wired
+  yet: `src/linuxkpi/src/runtime.c` is untouched in this milestone).
+* The IO80211 layer (phase 4) creates the vap with
+  `bsdkpi_if_clone_create("wlan", ...)`, sets `ifp->if_input` (frames up;
+  the default counts and drops) and feeds Ethernet frames down through
+  `ifp->if_transmit` (net80211 sets it to `ieee80211_vap_transmit`),
+  installs `bsdkpi_ifnet_hooks` for link state and `RTM_IEEE80211_*`
+  events, and drives `ifp->if_ioctl` with `SIOCS80211`/`SIOCG80211`.
+
 ## Build set
 
 Station mode first.  Built: `ieee80211.c, _proto, _node, _input, _output,

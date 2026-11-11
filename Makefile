@@ -67,7 +67,7 @@ LKPI_CFLAGS := -std=gnu11 -D__KERNEL__ -DLKPI_VERSION=1 \
                -I$(KPI_INC) -I$(N80211_INC) -I$(MT76_DIR) -include linux/kconfig.h $(CONFIG_DEFS) \
                -Wall -Wno-unused-parameter -Wno-gnu -Wno-missing-field-initializers \
                -Wno-sign-compare -Wno-address-of-packed-member -Wno-pointer-sign \
-               -Wno-unused-function -Wno-microsoft-anon-tag -Wno-c11-extensions \
+               -Wno-unused-function -Wno-microsoft-anon-tag -Wno-c11-extensions -Wno-c23-extensions \
                -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
                -Werror=int-conversion -Werror=return-type
 
@@ -77,7 +77,7 @@ NET80211_CFLAGS := -I$(BSDKPI_INC) -I$(BSDKPI_DIR) -I$(N80211_INC) $(LKPI_CFLAGS
 
 export LKPI_CFLAGS NET80211_CFLAGS KPI_INC MT76_DIR MT76_SRCS N80211_DIR NET80211_SRCS NET80211_EXTRA_SRCS BSDKPI_SRCS
 
-.PHONY: all check-headers check-net80211 link-check inventory host-tests kext clean
+.PHONY: all check-headers check-net80211 link-check link-check-net80211 inventory host-tests kext clean
 
 # make print-VAR prints a variable (used by scripts/link-check.sh).
 print-%:
@@ -89,7 +89,7 @@ check-headers: | $(BUILD)
 	@fail=0; for f in $(MT76_SRCS); do \
 		if $(CLANG) -fsyntax-only $(LKPI_CFLAGS) -DKBUILD_MODNAME='"$$(basename $$f .c)"' \
 		    $(MT76_DIR)/$$f 2> $(BUILD)/check.log; then \
-			printf '  ok    %s\n' $$f; \
+			printf '  ok    %s\n' $$f; cat $(BUILD)/check.log; \
 		else \
 			printf '  FAIL  %s\n' $$f; cat $(BUILD)/check.log; fail=1; \
 		fi; \
@@ -97,7 +97,7 @@ check-headers: | $(BUILD)
 	for f in $(LKPI_SRCS); do \
 		if $(CLANG) -fsyntax-only $(LKPI_CFLAGS) -I$(MT76_DIR)/mt7925 -DKBUILD_MODNAME='"lkpi"' \
 		    $$f 2> $(BUILD)/check.log; then \
-			printf '  ok    %s\n' $$f; \
+			printf '  ok    %s\n' $$f; cat $(BUILD)/check.log; \
 		else \
 			printf '  FAIL  %s\n' $$f; cat $(BUILD)/check.log; fail=1; \
 		fi; \
@@ -128,6 +128,11 @@ check-net80211: | $(BUILD)
 # the exact set the kext must still provide (phase-3 mac80211 glue etc.).
 link-check: | $(BUILD)
 	scripts/link-check.sh
+
+# The same for the 802.11 stack: net80211 build set + bsdkpi + AES, resolved
+# against src/linuxkpi/src, lkpi/os.h and libkern.
+link-check-net80211: | $(BUILD)
+	scripts/link-check-net80211.sh
 
 inventory:
 	$(PYTHON) -I scripts/api-inventory.py

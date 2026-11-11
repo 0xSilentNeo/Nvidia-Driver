@@ -12,7 +12,12 @@ struct property {
 	int length;
 	void *value;
 };
-#define of_property_read_u32(np, name, out) (-EINVAL)
+static inline int of_property_read_u32(const struct device_node *np, const char *name, u32 *out)
+{
+	(void)np; (void)name;
+	*out = 0;
+	return -EINVAL;
+}
 #define of_property_read_u32_array(np, name, out, sz) (-EINVAL)
 #define of_property_read_u8_array(np, name, out, sz) (-EINVAL)
 #define of_property_read_string(np, name, out) (-EINVAL)
@@ -40,7 +45,7 @@ static inline struct device_node *of_node_get(struct device_node *np) { return n
 static inline void of_node_put(struct device_node *np) { (void)np; }
 static inline bool of_device_is_available(const struct device_node *np) { (void)np; return false; }
 static inline bool of_device_is_compatible(const struct device_node *np, const char *c) { (void)np; (void)c; return false; }
-#define for_each_child_of_node(parent, child) for (child = NULL; child != NULL; )
+#define for_each_child_of_node(parent, child) for (child = NULL, (void)(parent); child != NULL; )
 #define for_each_available_child_of_node(parent, child) for (child = NULL; child != NULL; )
 #define of_property_for_each_string(np, propname, prop, s) \
 	for (prop = of_find_property(np, propname, NULL), s = NULL; prop && s; s = NULL)

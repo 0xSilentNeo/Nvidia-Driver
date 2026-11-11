@@ -43,7 +43,8 @@ Goal: `mt7925_pci_probe()` runs to completion inside the kext.
 Design: `docs/PHASE3_NET80211.md`.
 
 - [x] Vendor FreeBSD net80211 (`src/net80211/upstream`, pinned) and the BSD support files (`sys/queue.h`, `if_media.h`, rijndael AES).
-- [ ] `bsdkpi`: FreeBSD kernel API on LinuxKPI; the station-mode net80211 set compiles front-end clean (`make check-net80211`). *(in progress)*
+- [x] `bsdkpi`: FreeBSD kernel API on LinuxKPI (mbuf, callout, taskqueue, ifnet, ifmedia, sysctl, module registry). The station-mode net80211 set compiles clean (`make check-net80211`) and links with nothing undefined (`make link-check-net80211`).
+- [ ] Call `bsdkpi_init()` from the runtime, adapt `linux_80211.c` to bsdkpi + LinuxKPI, drop `mac80211_stub.c`.
 
 - [ ] Adapt FreeBSD's `linux_80211.c` (mac80211 → net80211 glue, already vendored in `src/lkpi80211/`) to that stack.
 - [ ] Scan: results visible through a debug IOUserClient tool.

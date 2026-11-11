@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/err.h>
 struct nvmem_cell;
+struct device;
 struct device_node;
 static inline struct nvmem_cell *of_nvmem_cell_get(struct device_node *np, const char *id) { (void)np; (void)id; return ERR_PTR(-ENOENT); }
 static inline struct nvmem_cell *nvmem_cell_get(struct device *dev, const char *id) { (void)dev; (void)id; return ERR_PTR(-ENOENT); }

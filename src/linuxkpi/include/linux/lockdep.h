@@ -12,7 +12,7 @@ struct lockdep_map { };
 #define lockdep_assert_once(c)		do { } while (0)
 #define lockdep_assert_in_softirq()	do { } while (0)
 #define lockdep_assert_irqs_disabled()	do { } while (0)
-#define lockdep_is_held(l)		(1)
+#define lockdep_is_held(l)		((void)(l), 1)
 #define lockdep_set_class(l, k)		do { (void)(l); (void)(k); } while (0)
 #define lockdep_set_class_and_name(l, k, n) do { } while (0)
 #define lockdep_set_subclass(l, s)	do { } while (0)

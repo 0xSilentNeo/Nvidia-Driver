@@ -125,8 +125,8 @@ reswitch:	switch (ch = (u_char)*fmt++) {
 			num = (u_int)va_arg(ap, int);
 			p = va_arg(ap, char *);
 			for (q = ksprintn(nbuf, sizeof(nbuf), num, *p++, NULL, 0);
-			    *q;)
-				PCHAR(*q--);
+			    *q; q++)
+				PCHAR(*q);
 			if (num == 0)
 				break;
 			for (tmp = 0; *p;) {
