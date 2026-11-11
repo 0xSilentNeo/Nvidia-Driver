@@ -121,6 +121,8 @@ net80211_register_builtin_modules(void)
 	return (0);
 }
 
+static void bsdkpi_modules_free(void);
+
 void
 net80211_unregister_builtin_modules(void)
 {
@@ -146,6 +148,7 @@ net80211_unregister_builtin_modules(void)
 	for (si = bsdkpi_sysinits; si != NULL; si = si->next)
 		si->flags &= ~BSDKPI_SYSINIT_DONE;
 	bsdkpi_sysinits_done = 0;
+	bsdkpi_modules_free();
 }
 
 /* ---- module(9) ------------------------------------------------------ */
@@ -161,6 +164,18 @@ bsdkpi_module_find(const moduledata_t *data)
 		if (mod->data == data)
 			return (mod);
 	return (NULL);
+}
+
+/* Drop the module records once every module has seen MOD_UNLOAD. */
+static void
+bsdkpi_modules_free(void)
+{
+	struct module *mod;
+
+	while ((mod = bsdkpi_modules) != NULL) {
+		bsdkpi_modules = mod->next;
+		free(mod, M_TEMP);
+	}
 }
 
 void

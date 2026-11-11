@@ -25,6 +25,9 @@ struct class;
 
 struct device {
 	struct device *parent;
+	/* FreeBSD LinuxKPI's newbus device_t; always NULL here (no newbus).
+	 * The vendored 802.11 glue tests it before using bus_*(9). */
+	void *bsddev;
 	struct kobject kobj;
 	char name[48];
 	void *driver_data;

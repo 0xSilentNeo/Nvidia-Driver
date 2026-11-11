@@ -50,10 +50,12 @@ enum {
 #define PACKET_MULTICAST	2
 #define PACKET_OTHERHOST	3
 
+/* The second name of each member is FreeBSD LinuxKPI's spelling, used by the
+ * vendored mac80211 -> net80211 glue (src/lkpi80211). */
 typedef struct bio_vec {
-	struct page *bv_page;
-	unsigned int bv_len;
-	unsigned int bv_offset;
+	union { struct page *bv_page; struct page *page; };
+	union { unsigned int bv_len; unsigned int size; };
+	union { unsigned int bv_offset; unsigned int offset; };
 } skb_frag_t;
 
 struct skb_shared_info {
@@ -86,7 +88,7 @@ struct sk_buff {
 	unsigned int truesize;
 	u16 mac_len;
 	u16 hdr_len;
-	u16 queue_mapping;
+	union { u16 queue_mapping; u16 qmap; /* FreeBSD LinuxKPI name */ };
 	u8 cloned:1, head_frag:1, pp_recycle:1, pfmemalloc:1, ip_summed:2, pkt_type:3, nohdr:1;
 	__be16 protocol;
 	u32 priority;
@@ -98,6 +100,10 @@ struct sk_buff {
 	/* 64 bytes like FreeBSD: the vendored ieee80211_tx_info needs more than Linux's 48. */
 	char cb[64] __aligned(8);
 	void (*destructor)(struct sk_buff *skb);
+	/* FreeBSD LinuxKPI extension used by src/lkpi80211: the mbuf a TX skb
+	 * was built from; released through m_free_func when the skb is freed. */
+	void *m;
+	void (*m_free_func)(void *);
 	refcount_t users;
 	u8 *head;
 	u8 *data;

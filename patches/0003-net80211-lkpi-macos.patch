@@ -1,3 +1,17 @@
+--- a/src/net80211/upstream/ieee80211_ageq.c
++++ b/src/net80211/upstream/ieee80211_ageq.c
+@@ -196,6 +196,11 @@
+ 	struct mbuf *m, **prev, *ohead;
+ 	struct mbuf *head, **phead;
+ 
++#if defined(LKPI_MACOS)
++	/* Read below ("head == ohead") before the first store when no
++	 * frame matches; harmless upstream, but an uninitialised read. */
++	head = NULL;
++#endif
+ 	IEEE80211_AGEQ_LOCK(aq);
+ 	ohead = aq->aq_head;
+ 	prev = &aq->aq_head;
 --- a/src/net80211/upstream/ieee80211_crypto_gcm.c
 +++ b/src/net80211/upstream/ieee80211_crypto_gcm.c
 @@ -40,6 +40,9 @@

@@ -209,6 +209,11 @@ static void skb_release(struct sk_buff *skb)
 		skb->destructor(skb);
 		skb->destructor = NULL;
 	}
+	/* 802.11 glue: the mbuf this TX skb was built from. */
+	if (skb->m != NULL && skb->m_free_func != NULL) {
+		skb->m_free_func(skb->m);
+		skb->m = NULL;
+	}
 	skb_release_data(skb);
 	kfree(skb);
 }
@@ -273,6 +278,8 @@ struct sk_buff *skb_clone(struct sk_buff *skb, gfp_t gfp)
 	n->prev = NULL;
 	n->sk = NULL;
 	n->destructor = NULL;
+	n->m = NULL;
+	n->m_free_func = NULL;
 	refcount_set(&n->users, 1);
 	n->cloned = 1;
 	n->nohdr = 0;

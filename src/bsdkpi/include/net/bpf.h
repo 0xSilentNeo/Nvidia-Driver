@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * net/bpf.h - bpf(9) with no listeners.  bpf_attach() returns NULL, so
+ * net/bpf.h - bpf(9) with no listeners.  bpf_attach() returns an opaque
+ * token (callers balance attach/detach on it being non-NULL), but
  * bpf_peers_present() is 0 and every tap is a no-op; the radiotap
  * machinery in net80211 then stays dormant (IEEE80211_FEXT_BPF unset).
  */

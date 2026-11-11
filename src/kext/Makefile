@@ -58,15 +58,24 @@ MT76_SRCS  ?= mmio.c util.c dma.c mac80211.c eeprom.c tx.c agg-rx.c mcu.c \
               mt792x_core.c mt792x_mac.c mt792x_dma.c mt792x_acpi_sar.c \
               mt7925/mac.c mt7925/mcu.c mt7925/regd.c mt7925/main.c mt7925/init.c \
               mt7925/pci.c mt7925/pci_mac.c mt7925/pci_mcu.c mt7925/cached_cal.c
+# The kext still links the phase-1 recording stub (mac80211_stub.c, the
+# top-level MAC80211_STUB=1 configuration, with LKPI_NO_NET80211 so that
+# runtime.c does not start bsdkpi).  The real stack (src/bsdkpi, src/net80211,
+# src/lkpi80211) builds, links and runs on the host (make link-check-full,
+# tests/host/test_probe); adding it here needs a Mac to validate bsdkpi's
+# #include_next <sys/types.h>/<sys/cdefs.h> against Kernel.framework and the
+# per-directory flags (NET80211_CFLAGS, LKPI80211_CFLAGS with the prelude).
 LKPI_SRCS  := $(wildcard $(TOP)/src/linuxkpi/src/*.c)
-# src/lkpi80211 is still FreeBSD-flavoured (sys/*.h); opt in once ported.
 LKPI80211_SRCS ?=
 
 CONFIG_DEFS ?= -DCONFIG_PCI=1 -DCONFIG_MT76_CONNAC_LIB=1 -DCONFIG_MT792x_LIB=1 \
                -DCONFIG_MT7925_COMMON=1 -DCONFIG_MT7925E=1 -DCONFIG_ACPI=1 \
                -DCONFIG_ARCH_DMA_ADDR_T_64BIT=1 -DCONFIG_IPV6=1
-LKPI_CFLAGS := -std=gnu11 -D__KERNEL__ -DLKPI_VERSION=1 \
-               -I$(KPI_INC) -I$(MT76_DIR) -include linux/kconfig.h $(CONFIG_DEFS) \
+# -fwrapv -fno-strict-aliasing: see KERNEL_CODEGEN in the top-level Makefile.
+# LKPI_NO_NET80211: see the note at LKPI_SRCS above.
+LKPI_CFLAGS := -std=gnu11 -fwrapv -fno-strict-aliasing -D__KERNEL__ -DLKPI_VERSION=1 \
+               -DLKPI_NO_NET80211=1 \
+               -I$(KPI_INC) -I$(TOP)/src/net80211 -I$(MT76_DIR) -include linux/kconfig.h $(CONFIG_DEFS) \
                -Wall -Wno-unused-parameter -Wno-gnu -Wno-missing-field-initializers \
                -Wno-sign-compare -Wno-address-of-packed-member -Wno-pointer-sign \
                -Wno-unused-function -Wno-microsoft-anon-tag -Wno-c11-extensions \

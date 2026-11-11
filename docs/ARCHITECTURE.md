@@ -18,7 +18,7 @@ re-implementations, and everything written here is MIT.
  ├──────────────────────────────────────────────────────────────────────────┤
  │ 802.11 MLME stack (phase 3)                  src/net80211/, src/lkpi80211│
  │   FreeBSD net80211 (BSD-2) on an mbuf/ifnet shim + FreeBSD's             │
- │   mac80211 → net80211 translation (linux_80211.c, vendored for reference)│
+ │   mac80211 → net80211 translation (linux_80211.c, patches/0004)          │
  ├──────────────────────────────────────────────────────────────────────────┤
  │ LinuxKPI: Linux kernel API on IOKit         src/linuxkpi/                │
  │   include/linux, include/net   C headers (ours + FreeBSD 802.11 headers) │
@@ -74,6 +74,10 @@ IOKit type.  That keeps the two halves independently compilable and reviewable.
   `#if defined(LKPI_MACOS)` hunks are in `patches/0003-*.patch`; the FreeBSD
   kernel API it needs is `src/bsdkpi` (docs/PHASE3_NET80211.md), checked by
   `make check-net80211`.
+* `src/lkpi80211` is FreeBSD's mac80211 → net80211 glue (imported by
+  `scripts/import-freebsd.sh`) with the hunks of `patches/0004-*.patch`,
+  built with a force-included prelude header that orders the FreeBSD and
+  Linux headers (`make check-lkpi80211`); `lkpi80211_compat.c` is ours.
 * `scripts/regen-patches.sh` rebuilds the patch series from the current tree,
   so re-importing a newer upstream is: import, apply-patches, fix conflicts,
   regen-patches, `make check-headers`.
@@ -90,10 +94,14 @@ file and every C file of the compatibility layer with the real flags
 type mismatches).  It needs no SDK and is the gate for any header change: all
 28 driver files and the LinuxKPI sources compile with zero warnings.
 
-`make link-check` goes one step further: it compiles the driver and the C
-layer to host objects and prints every symbol nothing defines.  After the
-phase-1 stub (`src/linuxkpi/src/mac80211_stub.c`) that list is empty apart
-from libkern functions, which is the proof that the kext can link.
+`make link-check-full` goes one step further: it compiles the driver, the C
+layer, bsdkpi, net80211 and the mac80211 glue to host objects and fails on
+any symbol nothing defines (apart from `lkpi/os.h` and libkern functions)
+or that two objects define, which is the proof that the kext can link.
+`make link-check` does the same for the driver and LinuxKPI alone and lists
+what they expect from the 802.11 stack; with `MAC80211_STUB=1` the phase-1
+recording stub (`src/linuxkpi/src/mac80211_stub.c`) stands in for the stack
+and that list must be empty.
 
 `scripts/api-inventory.py` regenerates `docs/LINUX_API_INVENTORY.md`, the
 list of every external symbol the driver uses and whether the layer provides
@@ -102,10 +110,11 @@ it.
 `make host-tests` builds the C layer against the libc backend and runs unit
 tests for lists, bit operations, bitfields, idr, skbuff, workqueues, timers,
 completions and kthreads.  `tests/host/test_probe` goes further and links the
-real driver: with a 60-line register model (ownership handshake, WFSYS reset,
-chip ID) the unmodified `mt7925_pci_probe()` runs through PCI setup, firmware
-feature parsing, DMA ring allocation and MCU initialisation on a developer
-machine, fails cleanly when no firmware answers, and detaches.  Set
+real driver and the real 802.11 stack: against a software model of the chip
+(`mt7925_model.c`: registers, DMA rings, MCU) the unmodified
+`mt7925_pci_probe()` runs through PCI setup, firmware download, MCU
+initialisation and `ieee80211_register_hw()`; net80211 then creates a
+station vap, scans (the model answers with a beacon) and tears down again.  Set
 `LKPI_FIRMWARE_DIR` to a directory holding the MediaTek blobs
 (`scripts/fetch-firmware.sh`) to exercise the firmware parser.
 

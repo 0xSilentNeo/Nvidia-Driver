@@ -61,6 +61,16 @@ struct pkthdr {
 	uint16_t	 tso_segsz;	/* TSO segment size (net80211: seqno) */
 	uint32_t	 csum_data;	/* checksum data (net80211: age) */
 	struct m_snd_tag *snd_tag;
+	/* Layer-specific non-persistent local storage (linux_80211.c keeps
+	 * the node reference of a queued frame in PH_loc.ptr). */
+	union {
+		uint8_t	 eight[8];
+		uint16_t sixteen[4];
+		uint32_t thirtytwo[2];
+		uint64_t sixtyfour[1];
+		uintptr_t unintptr[1];
+		void	*ptr;
+	} PH_loc;
 	uint32_t	 lro_nsegs;
 	uint32_t	 lro_tcp_d_len;
 	uint32_t	 lro_tcp_d_csum;

@@ -74,6 +74,7 @@ struct if_data {
 #define IFF_LINK1	0x2000
 #define IFF_LINK2	0x4000
 #define IFF_ALTPHYS	IFF_LINK2
+#undef IFF_MULTICAST		/* linux/if.h has its own value; FreeBSD wins from here */
 #define IFF_MULTICAST	0x8000
 #define IFF_CANTCONFIG	0x10000
 #define IFF_PPROMISC	0x20000
@@ -84,6 +85,7 @@ struct if_data {
 #define IFF_RENAMING	0x400000
 #define IFF_PALLMULTI	0x800000
 #define IFF_NETLINK_1	0x1000000
+#undef IFF_RUNNING
 #define IFF_RUNNING	IFF_DRV_RUNNING
 #define IFF_OACTIVE	IFF_DRV_OACTIVE
 #define IFF_CANTCHANGE \

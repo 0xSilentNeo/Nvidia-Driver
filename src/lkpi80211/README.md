@@ -1,34 +1,27 @@
-# `src/lkpi80211` — mac80211 → net80211 glue (phase 3 reference)
+# `src/lkpi80211` — mac80211 → net80211 glue
 
-These files are FreeBSD's LinuxKPI 802.11 compatibility layer, vendored
-verbatim (BSD-2-Clause, see `src/linuxkpi/include/FREEBSD_UPSTREAM` for the
-pinned commit):
+FreeBSD's LinuxKPI 802.11 compatibility layer (BSD-2-Clause, pinned to the
+commit in `src/linuxkpi/include/FREEBSD_UPSTREAM`), plus two files of ours.
+Design and status: `docs/PHASE3_NET80211.md`.
 
-| File | Role |
-|---|---|
-| `linux_80211.c` | Implements the `ieee80211_*`/`wiphy_*` calls a mac80211 driver makes (register_hw, rx, tx_status, scan_completed, queue handling, key/sta/vif management) by translating them to FreeBSD's `net80211` stack. ~10k lines. |
-| `linux_80211_macops.c` | Thin wrappers calling the driver's `struct ieee80211_ops` callbacks with tracing. |
-| `linux_80211.h` | Private state: `lkpi_hw`, `lkpi_vif`, `lkpi_sta` that wrap net80211's `ieee80211com`/`ieee80211vap`/`ieee80211_node`. |
-| `linuxkpi_80211_pm.c` | Suspend/resume plumbing. |
+| File | Origin | Role |
+|---|---|---|
+| `linux_80211.c` | FreeBSD + `patches/0004` | Implements the `ieee80211_*`/`wiphy_*` calls a mac80211 driver makes (register_hw, rx, tx_status, scan_completed, queue handling, key/sta/vif management) by translating them to net80211, and net80211's driver hooks (`ic_vap_create`, `ic_scan_start`, `iv_newstate`, ...) to the driver's `struct ieee80211_ops`. ~10k lines. |
+| `linux_80211_macops.c` | FreeBSD, verbatim | Thin wrappers calling the driver's `struct ieee80211_ops` callbacks with tracing. |
+| `linux_80211.h` | FreeBSD, verbatim | Private state: `lkpi_hw`, `lkpi_vif`, `lkpi_sta` that wrap net80211's `ieee80211com`/`ieee80211vap`/`ieee80211_node`. |
+| `linuxkpi_80211_pm.c` | FreeBSD, verbatim, **not built** | newbus driver for FreeBSD's suspend/resume child devices. No newbus here: phase 4 calls `lkpi_80211_suspend()/lkpi_80211_resume()` from `IOService::setPowerState`. Kept so that a re-import diffs cleanly. |
+| `lkpi80211_prelude.h` | ours (MIT) | Force-included for this directory (`LKPI80211_CFLAGS`). Parses the Linux headers before `sys/param.h` so that the macros both kernels define (`ALIGN`, `LIST_HEAD`, `PAGE_SIZE`, `IFF_*`, `ieee80211_send_bar`) do not collide, and pulls in the FreeBSD headers the glue gets implicitly in a FreeBSD kernel. |
+| `lkpi80211_compat.c` | ours (MIT) | What `net/mac80211.h` declares but the glue lacks: `ieee80211_txq_aql_pending`, the NAN notifications, the `compat.linuxkpi` sysctl node. |
 
-**They are not built yet.** They depend on FreeBSD's `net80211` (which will
-be ported in phase 3 onto an mbuf/ifnet shim; XNU has a public `mbuf_t` KPI)
-and on FreeBSD kernel primitives (`mtx`, `callout`, `taskqueue`, `epoch`).
+Build and check:
 
-## Phase-3 plan
+```
+make check-lkpi80211     # front-end compile, zero warnings
+make link-check-full     # driver + LinuxKPI + bsdkpi + net80211 + glue link
+make -C tests/host run   # test_probe runs the stack against the chip model
+```
 
-1. Port `sys/net80211` (BSD-2) into `src/net80211/` with a `bsdkpi/` shim:
-   `mtx`→`IOLock`, `callout`→timers, `taskqueue`→workqueues, `mbuf`→XNU
-   `mbuf_t`, `ifnet`→an internal interface object that later binds to the
-   IO80211 interface (phase 4).
-2. Adapt `linux_80211.c` to our LinuxKPI (it already targets the same
-   `net/mac80211.h` we vendor, so most of it compiles as is; the FreeBSD
-   kernel calls inside are the work).
-3. Replace the phase-1 recording stub (`ieee80211_alloc_hw`/`register_hw`
-   logging the advertised capabilities) with the real glue.
-
-Until then, phase 1 links against `src/linuxkpi/src/mac80211_stub.c`, which
-implements the handful of `ieee80211_*` entry points the probe path touches
-(`ieee80211_alloc_hw`, `SET_IEEE80211_DEV`, `ieee80211_register_hw`,
-`wiphy_*`) well enough for the driver to initialise the hardware, and logs
-everything else.
+Rules for changes: prefer the prelude or a shim header (`src/linuxkpi`,
+`src/bsdkpi`) over editing the vendored files; an unavoidable edit goes
+under `#if defined(LKPI_MACOS)` and into `patches/0004-lkpi80211-lkpi-macos.patch`
+(`scripts/regen-patches.sh` regenerates it).

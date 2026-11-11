@@ -12,8 +12,9 @@
  * real workqueue so firmware events and the init_work still run, and every
  * data-path call is a no-op that frees what it is handed.
  *
- * Nothing here must be reachable once the real glue exists: the file is
- * simply dropped from the build then.
+ * The real glue exists now (src/lkpi80211 on net80211) and this file is out
+ * of the default build; `make MAC80211_STUB=1 ...` (and, for the time being,
+ * src/kext/Makefile) still select it, together with LKPI_NO_NET80211.
  */
 #include <linux/kernel.h>
 #include <linux/slab.h>

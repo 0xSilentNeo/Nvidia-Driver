@@ -12,8 +12,18 @@ everything else here, is to reuse what already runs this exact driver:
 * **FreeBSD `linux_80211.c`** (BSD-2-Clause, in `src/lkpi80211/`): the
   translation from the `ieee80211_*` calls a mac80211 driver makes to
   net80211, and from net80211's state machine back to the driver's
-  `struct ieee80211_ops`.  About 10k lines; it already compiles against the
-  `net/mac80211.h` we vendor.
+  `struct ieee80211_ops`.  About 10k lines; built with six
+  `#if defined(LKPI_MACOS)` hunks (`patches/0004-*`), see "Milestone 2 as
+  built" below.
+
+**Status.** Milestones 1 to 3 are done on the host: the whole stack (driver,
+LinuxKPI, bsdkpi, net80211, glue) compiles warning-free, links with nothing
+undefined (`make link-check-full`) and runs in `tests/host/test_probe`:
+`ieee80211_register_hw()` attaches an `ieee80211com`, a station vap is
+created through the "wlan" cloner, brought up, and a scan goes down to the
+(modelled) firmware and comes back as a scan-cache entry.  The kext itself
+still builds the phase-1 stub (`src/kext/Makefile`); nothing here has run on
+hardware.
 
 Both sit on FreeBSD kernel primitives.  Phase 3 therefore adds one more
 compatibility layer, **bsdkpi**, implementing those primitives on the
@@ -133,8 +143,9 @@ is left for the glue to *define*.  What the later layers must still *do*:
   `ic_transmit`, `ic_raw_xmit`, `ic_parent`, `ic_scan_start/end`,
   `ic_set_channel`, `ic_newassoc`, `iv_key_alloc/set/delete`, ... and calls
   `ieee80211_ifattach()` with a filled-in `struct ieee80211com`.
-* The runtime calls `bsdkpi_init()` after `lkpi_runtime_init()` (not wired
-  yet: `src/linuxkpi/src/runtime.c` is untouched in this milestone).
+* The runtime calls `bsdkpi_init()` (done in milestone 2: it is the
+  "net80211" subsystem of `lkpi_runtime_init()`, started after NAPI and
+  before the PCI bus and the driver's module init, stopped in reverse).
 * The IO80211 layer (phase 4) creates the vap with
   `bsdkpi_if_clone_create("wlan", ...)`, sets `ifp->if_input` (frames up;
   the default counts and drops) and feeds Ethernet frames down through
@@ -142,30 +153,201 @@ is left for the glue to *define*.  What the later layers must still *do*:
   installs `bsdkpi_ifnet_hooks` for link state and `RTM_IEEE80211_*`
   events, and drives `ifp->if_ioctl` with `SIOCS80211`/`SIOCG80211`.
 
+## Milestone 2 as built (`src/lkpi80211`, `make check-lkpi80211`, `make link-check-full`)
+
+`linux_80211.c` and `linux_80211_macops.c` are built; `lkpi80211_compat.c`
+(ours) adds what the vendored `net/mac80211.h` declares but FreeBSD's glue
+lacks: `ieee80211_txq_aql_pending()` (0: no airtime accounting), the three
+NAN notifications (warn once; `mt7925/nan.c` is not built) and the
+`compat.linuxkpi` sysctl node FreeBSD defines in `linux_compat.c`.
+`linuxkpi_80211_pm.c` is **not** built: it is a newbus driver
+(`device_t` methods, `DRIVER_MODULE`) for FreeBSD's suspend/resume child
+devices; here power events will come from `IOService::setPowerState` and
+call `lkpi_80211_suspend()/lkpi_80211_resume()` (in `linux_80211.c`)
+directly.
+
+**The header-order problem** (the caveat of milestone 1) is solved without
+touching the vendored file by `src/lkpi80211/lkpi80211_prelude.h`,
+force-included (`-include`) for this directory (`LKPI80211_CFLAGS`):
+
+1. bsdkpi's `sys/types.h` first (it parses the core LinuxKPI headers before
+   FreeBSD's `sys/queue.h`);
+2. `#define LINUXKPI_NET80211` and every Linux header the glue uses
+   (`linux/netdevice.h` with its two-argument `ALIGN`, `linux/pci.h`,
+   `net/cfg80211.h`, `net/mac80211.h`, ...) while Linux's macros are still
+   in force;
+3. `sys/param.h` and the FreeBSD headers the glue relies on implicitly
+   (`sys/sx.h`, `sys/refcount.h`, `sys/proc.h`, `sys/pcpu.h`, `sys/bus.h`);
+4. the net80211 headers, with mac80211.h's function-like macro
+   `ieee80211_send_bar` hidden (`#pragma push_macro`) while net80211's
+   prototype of the same name is parsed (FreeBSD has the opposite include
+   order and therefore no clash).
+
+The glue's own `#include`s are then guarded no-ops.  The prelude also
+defines the two FreeBSD-LinuxKPI names ours spells differently
+(`linux_page_address`, the `%b` string `NETIF_F_BITS`).
+
+**Shim changes** made so that the glue compiles unmodified:
+
+| Where | What |
+|---|---|
+| `linux/skbuff.h`, `skbuff.c` | `struct sk_buff` gains FreeBSD's `m`/`m_free_func` (the mbuf a TX skb was built from, released when the skb is freed); `qmap` aliases `queue_mapping`; `skb_frag_t` members also answer to `page/size/offset`. |
+| `linux/netdevice.h` | `addr_list` aliases the `list` linkage of `netdev_hw_addr(_list)`; `__hw_addr_init()`. |
+| `linux/device.h` | `void *bsddev` (always NULL: no newbus); the glue tests it before `bus_*`. |
+| `linux/list.h` | `LINUX_LIST_HEAD` spelled out (FreeBSD's `LIST_HEAD` is in force where it expands). |
+| `net/ieee80211_radiotap.h` | now includes net80211's definitions (as FreeBSD's LinuxKPI does) instead of carrying a second, enum-based copy that collided with them. |
+| bsdkpi `sys/bus.h` (new) | `device_t` and no-op `bus_*` for the PM-children calls. |
+| bsdkpi `sys/mbuf.h` | `m_pkthdr.PH_loc` (the glue keeps a node reference in `PH_loc.ptr`). |
+| bsdkpi `net/if.h` | `#undef` before `IFF_MULTICAST`/`IFF_RUNNING` (linux/if.h has other values; FreeBSD's win afterwards). |
+| bsdkpi `bpf_attach()` | returns an opaque non-NULL token: `ieee80211_radiotap_vattach()` takes an interface reference that `vdetach` only drops when `iv_rawbpf != NULL`, so NULL leaked every vap's ifnet. |
+| bsdkpi `modules.c` | module records are freed at `bsdkpi_fini()`. |
+
+**`patches/0004-lkpi80211-lkpi-macos.patch`**: six hunks, all in
+`linux_80211.c`, all `#if defined(LKPI_MACOS)`:
+
+| Hunks | Why |
+|---|---|
+| 3: `linuxkpi_wiphy_new`, `linuxkpi_wiphy_free`, `linuxkpi_set_ieee80211_dev` | `struct wiphy` embeds its `struct device` (patches/0002): initialise it, run its devres on free, name it `<parent>-phy` (the glue names its work queue with `wiphy_name()`). |
+| 1: `linuxkpi_ieee80211_ifattach` | `%b` takes an `int`; `netdev_features_t` is 64 bit here. |
+| 1: `lkpi_lsta_free` | **upstream leak**: the 16 per-TID `lkpi_txq` of every station were never freed (`XXX-BZ free resources`). They are unlinked from the scheduling list, purged and freed. |
+| 1: `linuxkpi_ieee80211_iffree` | **upstream leak**: the per-hw work queue (and its thread) was never destroyed. |
+
+`patches/0003` gained one hunk (`ieee80211_ageq_remove()` read `head`
+uninitialised when no frame matched; harmless, but valgrind flags it), and
+the build set gained `ieee80211_ratectl_none.c` and `ieee80211_amrr.c`:
+`lkpi_ic_vap_create()` calls `ieee80211_ratectl_init()`, which dereferences
+a NULL `iv_rate` when neither rate-control module is registered (FreeBSD
+kernels always have both).
+
+**Code generation.** `-fwrapv -fno-strict-aliasing` are now part of
+`LKPI_CFLAGS` (`KERNEL_CODEGEN`), as in both kernels this code comes from.
+This is not cosmetic: net80211 computes `ieee80211_time_after(a, b)` as
+`((int)(b) - (int)(a) < 0)` and schedules "scan forever" as
+`ticks + INT_MAX`; without `-fwrapv` clang folds the comparison to
+`(int)(b) < (int)(a)` and every scan ended before its first channel (found
+by the host test: frames were dropped as "not to bss").
+
+**Build integration.**
+
+* `LKPI80211_SRCS`, `LKPI80211_CFLAGS` (= `NET80211_CFLAGS` + the prelude +
+  `-Wno-format-security`, because the glue passes `wiphy_name()` as the
+  format of `alloc_ordered_workqueue()`); `make check-lkpi80211`.
+* `mac80211_stub.c` stays in the tree but out of `LKPI_SRCS`;
+  `MAC80211_STUB=1` selects the old behaviour (stub in, `LKPI_NO_NET80211`
+  so that `runtime.c` does not start bsdkpi).  `check-headers` still
+  compiles the stub so it cannot rot.  The stub's `rfc1042_header`,
+  `bridge_tunnel_header` and channel helpers needed no new home: the glue
+  defines them.
+* `make link-check-full` (`scripts/link-check-full.sh`): 98 objects (mt76
+  27, LinuxKPI 22, net80211 31, bsdkpi + AES 15, glue 3), no duplicate
+  strong symbol, 80 undefined symbols, all of them `lkpi/os.h` (66) or
+  libc/libkern (14).  `make link-check` (driver + LinuxKPI only) now lists
+  the 43 symbols it expects from the stack, and with `MAC80211_STUB=1`
+  must be empty as before.
+
+## Milestone 3 as built (`tests/host/test_probe`)
+
+The probe test links the same objects as `link-check-full` plus the libc
+backend and the chip model, and `tests/host/wlan_host.c` (compiled with the
+glue's flags) drives net80211 the way the IO80211 layer will.  Sequence
+observed, in order:
+
+1. `lkpi_runtime_init()`: ..., `bsdkpi_init()` (SYSINITs, MOD_LOAD: ciphers,
+   scanners, ratectl, the "wlan" cloner), PCI, driver module init.
+2. Probe, firmware download, `mt7925_init_work` →
+   `ieee80211_register_hw()` → `linuxkpi_ieee80211_ifattach()` →
+   `ieee80211_ifattach()`: one `ieee80211com` named after the PCI device
+   with the EFUSE MAC address, STA and WPA capabilities, HT and VHT, 378
+   channel table entries covering the 14 + 28 frequencies of the driver's
+   2.4 and 5 GHz sbands.
+3. `bsdkpi_if_clone_create("wlan")` → `wlan_clone_create` →
+   `lkpi_ic_vap_create` → `mt7925_start` + `mt7925_add_interface`: 7 MCU
+   commands (SET_DOMAIN_INFO, BAND_CONFIG ×3, DEV_INFO_UPDATE,
+   BSS_INFO_UPDATE, EDCA_UPDATE); `wlan0` exists in INIT.
+4. `SIOCSIFFLAGS` up → INIT → SCAN → `ieee80211_check_scan` →
+   `lkpi_ic_scan_start` (hw scan, 42 channels) → `mt7925_hw_scan` → MCU
+   `UNI SCAN_REQ`.  The model answers with one beacon on the data RX ring
+   and an unsolicited `SCAN_DONE` event.
+5. Beacon: RX ring → `mt7925_queue_rx_skb` → `mt76_rx` →
+   `linuxkpi_ieee80211_rx` → rxq task → `ieee80211_input_mimo_all` →
+   `sta_recv_mgmt` → `ieee80211_add_scan`: **a scan-cache entry with the
+   model's SSID** (`ieee80211_scan_iterate`).  Scan done:
+   `mt7925_scan_work` → `ieee80211_scan_completed` → `ieee80211_scan_done`.
+6. Down (SCAN → INIT, cache flushed), manual roaming
+   (`IEEE80211_IOC_ROAMING`), up, then `SIOCS80211`/`IEEE80211_IOC_SCAN_REQ`
+   twice: the first, in INIT, only moves the vap to SCAN (see below), the
+   second sends exactly one more MCU scan request and fills the cache again.
+7. Down, `bsdkpi_if_clone_destroy` → `lkpi_ic_vap_delete` →
+   `mt7925_remove_interface` + `mt7925_stop` (2 MCU commands), then
+   `lkpi_pci_detach` → `ieee80211_unregister_hw` → `ieee80211_ifdetach`.
+
+The model's assertions hold throughout (0 unknown commands, 0 model
+errors); valgrind memcheck reports 0 errors.  With `--leak-check=full` the
+only definite leaks are the lazily allocated lock objects of driver
+structures that are freed without a destroy call (accepted by design, see
+`src/linuxkpi/src/lock.c`).
+
+**What the test showed about the stack** (relevant for the kext):
+
+* **No 6 GHz in net80211.**  The driver registers a 6 GHz sband, but
+  `lkpi_ic_getradiocaps()` only translates 2.4 and 5 GHz and net80211 at the
+  pinned commit has no 6 GHz channel flags; the hw-scan request carries
+  `n_6ghz_params = 0`.  Wi-Fi 6E needs work in both (phase 5).
+* **`cryptocaps` is 0** after attach although the driver lists cipher
+  suites: the glue's `hw_crypto` tunable defaults to off, so net80211 would
+  do CCMP/GCMP in software and frames would reach the driver already
+  encrypted.  To be decided (and tested on hardware) in milestone 4.
+* **Scan results only count while net80211 is scanning.**  A beacon that
+  reaches `sta_input` after `ieee80211_scan_done()` is dropped as "not to
+  bss"; with a hw scan the firmware's results and its scan-done event race
+  through different threads (RX NAPI → rxq task versus `scan_work`).  The
+  driver's 100 ms deferral of the completion normally hides it.
+* **`IEEE80211_IOC_SCAN_REQ` in INIT** stores the request and enters SCAN,
+  but `iv_scanreq_flags` is 16 bits wide, so `IEEE80211_IOC_SCAN_FLUSH`
+  (0x10000) is lost and a "hot" cache (a scan finished within
+  `iv_scanvalid`, 60 s) answers the request without scanning.  Requests in
+  SCAN/RUN always scan.  The IO80211 layer should bring the vap to SCAN
+  first (or lower `iv_scanvalid`).
+* **With automatic roaming and nothing to join, net80211 rescans in a
+  tight loop** (every 100 ms against the model, which completes scans
+  instantly); the IO80211 layer should run the vap with
+  `IEEE80211_ROAMING_MANUAL`, like wpa_supplicant does.
+* `curthread` is one static descriptor in bsdkpi, so the thread ids in the
+  glue's traces are all 0, and `sx(9)` is a recursive mutex (the glue
+  creates `lvif_sx`/`mc_sx` with `SX_RECURSE`).
+* After the last interface is removed `mt792x_stop()` cancels `pm.ps_work`
+  and nothing re-arms it, so the chip can stay in driver own until the next
+  activity (upstream behaviour; visible in the test as "driver own" before
+  detach on some runs).
+
 ## Build set
 
 Station mode first.  Built: `ieee80211.c, _proto, _node, _input, _output,
 _sta, _scan, _scan_sta, _scan_sw, _ht, _vht, _crypto, _crypto_none/_wep/
 _tkip/_ccmp/_gcmp/_gcm, _power, _phy, _regdomain, _action, _ageq, _ratectl,
-_radiotap, _monitor, _ioctl, _dfs, _freebsd` and `linux_80211.c`,
-`linux_80211_macops.c`.  Deferred: `_hostap` (AP mode, phase 5),
-`_mesh/_hwmp`, `_tdma`, `_wds`, `_adhoc`, `_superg`, `_amrr/_rssadapt`
-(rate control stays in the driver/firmware), `_acl`, `_alq`, `_ddb`.
+_radiotap, _ratectl_none, _amrr, _monitor, _ioctl, _dfs, _freebsd` and
+`linux_80211.c`, `linux_80211_macops.c`, `lkpi80211_compat.c`.  Deferred:
+`_hostap` (AP mode, phase 5), `_mesh/_hwmp`, `_tdma`, `_wds`, `_adhoc`,
+`_superg`, `_rssadapt`, `_acl`, `_alq`, `_ddb`.  (`_ratectl_none` and
+`_amrr` are in because the glue initialises net80211 rate control for every
+vap; the rates themselves come from the firmware.)
 
 `make check-net80211` front-end compiles that set against bsdkpi on any host
-(the same gate as `check-headers`); `make link-check` then shows what the
-IO80211 layer must still provide (`if_input`/`if_transmit` consumers).
+(the same gate as `check-headers`), `make check-lkpi80211` does the same
+for the glue, and `make link-check-full` proves the complete program links.
 
 ## Milestones
 
-1. bsdkpi headers and mbuf/callout/taskqueue/ifnet implementations; the
-   net80211 build set compiles front-end clean.
-2. `linux_80211.c` compiles against bsdkpi + LinuxKPI with a patch series
-   (`patches/0003-*`) for the macOS-specific spots; the phase-1 stub
-   `mac80211_stub.c` is dropped from the build.
-3. Host test: `test_probe` grows a software MCU model that answers the
-   handful of commands needed to reach `ieee80211_register_hw`; net80211
-   attaches a `wlan0` vap; a scan request flows driver-ward.
+1. **Done.** bsdkpi headers and mbuf/callout/taskqueue/ifnet
+   implementations; the net80211 build set compiles front-end clean.
+2. **Done (host).** `linux_80211.c` compiles against bsdkpi + LinuxKPI with
+   a patch series (`patches/0004-*`) for the macOS-specific spots; the
+   phase-1 stub `mac80211_stub.c` is dropped from the default build.  Open:
+   the same switch in `src/kext/Makefile` (needs a Mac to validate bsdkpi's
+   `#include_next` against Kernel.framework).
+3. **Done (host).** `test_probe`'s software MCU model reaches
+   `ieee80211_register_hw`; net80211 attaches a `wlan0` vap; a scan request
+   flows driver-ward and a modelled beacon comes back into the scan cache.
 4. On hardware: scan results, open-system association, WPA2-PSK
    (net80211 runs the 4-way handshake in kernel through `ieee80211_crypto`
    and the key install goes to `mt7925_set_key`), WPA3-SAE.

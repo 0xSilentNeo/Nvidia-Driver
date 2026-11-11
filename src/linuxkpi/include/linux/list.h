@@ -12,7 +12,9 @@
 
 #define LIST_HEAD_INIT(name) { &(name), &(name) }
 #define LIST_HEAD(name) struct list_head name = LIST_HEAD_INIT(name)
-#define LINUX_LIST_HEAD(name) LIST_HEAD(name)
+/* Spelled out: FreeBSD's sys/queue.h LIST_HEAD(name, type) may be in force
+ * where this expands (bsdkpi translation units). */
+#define LINUX_LIST_HEAD(name) struct list_head name = LIST_HEAD_INIT(name)
 
 static inline void INIT_LIST_HEAD(struct list_head *list)
 {

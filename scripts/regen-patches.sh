@@ -3,7 +3,7 @@
 #
 # Regenerate patches/*.patch from the differences between the pinned upstream
 # trees and our vendored copies.  Run after editing anything under src/mt76,
-# the FreeBSD-derived headers or src/net80211/upstream so that
+# the FreeBSD-derived headers, src/net80211/upstream or src/lkpi80211 so that
 # scripts/import-*.sh + apply-patches.sh reproduce the tree exactly.
 #
 # Usage: scripts/regen-patches.sh [/path/to/mt76.git] [/path/to/freebsd-src]
@@ -55,6 +55,16 @@ for f in "$ROOT"/src/net80211/upstream/*.[ch]; do
 	diff -u --label "a/src/net80211/upstream/$b" --label "b/src/net80211/upstream/$b" \
 	    "$FB_SRC/sys/net80211/$b" "$f" \
 	    >> "$ROOT/patches/0003-net80211-lkpi-macos.patch" || true
+done
+
+# 0004: FreeBSD mac80211 -> net80211 glue adaptations (#if defined(LKPI_MACOS)
+# hunks only; everything else is solved in src/lkpi80211/lkpi80211_prelude.h
+# and the shim headers).
+: > "$ROOT/patches/0004-lkpi80211-lkpi-macos.patch"
+for b in linux_80211.c linux_80211.h linux_80211_macops.c linuxkpi_80211_pm.c; do
+	diff -u --label "a/src/lkpi80211/$b" --label "b/src/lkpi80211/$b" \
+	    "$FB_SRC/sys/compat/linuxkpi/common/src/$b" "$ROOT/src/lkpi80211/$b" \
+	    >> "$ROOT/patches/0004-lkpi80211-lkpi-macos.patch" || true
 done
 for p in "$ROOT/patches"/*.patch; do
 	[ -s "$p" ] || rm -f "$p"

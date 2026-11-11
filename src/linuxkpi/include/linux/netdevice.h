@@ -62,15 +62,21 @@ struct rtnl_link_stats64 {
 	u64 rx_errors, tx_errors, rx_dropped, tx_dropped;
 	u64 multicast, collisions;
 };
+/* "addr_list" is FreeBSD LinuxKPI's name for the linkage (src/lkpi80211). */
 struct netdev_hw_addr {
-	struct list_head list;
+	union { struct list_head list; struct list_head addr_list; };
 	unsigned char addr[MAX_ADDR_LEN];
 	unsigned char type;
 };
 struct netdev_hw_addr_list {
-	struct list_head list;
+	union { struct list_head list; struct list_head addr_list; };
 	int count;
 };
+static inline void __hw_addr_init(struct netdev_hw_addr_list *l)
+{
+	INIT_LIST_HEAD(&l->list);
+	l->count = 0;
+}
 #define netdev_hw_addr_list_count(l) ((l)->count)
 #define netdev_hw_addr_list_empty(l) ((l)->count == 0)
 #define netdev_hw_addr_list_for_each(ha, l) list_for_each_entry(ha, &(l)->list, list)

@@ -196,6 +196,11 @@ ieee80211_ageq_remove(struct ieee80211_ageq *aq,
 	struct mbuf *m, **prev, *ohead;
 	struct mbuf *head, **phead;
 
+#if defined(LKPI_MACOS)
+	/* Read below ("head == ohead") before the first store when no
+	 * frame matches; harmless upstream, but an uninitialised read. */
+	head = NULL;
+#endif
 	IEEE80211_AGEQ_LOCK(aq);
 	ohead = aq->aq_head;
 	prev = &aq->aq_head;

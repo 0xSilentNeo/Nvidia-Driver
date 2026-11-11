@@ -2,9 +2,12 @@
 # SPDX-License-Identifier: MIT
 #
 # Compile the vendored driver and the C half of the LinuxKPI layer to host
-# objects and print the symbols that nothing defines.  Those are exactly the
-# functions the kext still has to supply (today: the mac80211/cfg80211 entry
-# points implemented by the phase-3 802.11 glue, plus libkern functions).
+# objects and print the symbols that nothing in that set defines: the
+# interface between the driver + LinuxKPI and the 802.11 stack (net80211,
+# bsdkpi and the src/lkpi80211 glue), plus libkern functions.
+# scripts/link-check-full.sh adds the stack and requires the list to be
+# empty.  With MAC80211_STUB=1 the phase-1 recording stub is built instead
+# of the stack and this list must be empty by itself.
 #
 # Works on any x86-64/arm64 Linux or macOS host with clang; needs no SDK.
 set -eu
@@ -48,8 +51,15 @@ comm -23 "$OBJ/need.txt" "$OBJ/known.txt" > "$OBJ/missing.txt"
 
 echo "objects: $(ls "$OBJ"/*.o | wc -l), undefined after linking the set: $(wc -l < "$OBJ/need.txt")"
 echo "provided by lkpi/os.h or libkern: $(comm -12 "$OBJ/need.txt" "$OBJ/known.txt" | wc -l)"
-echo "still missing ($(wc -l < "$OBJ/missing.txt")):"
-echo "  802.11 glue (phase 3): $(grep -cE '^(ieee80211_|cfg80211_|wiphy_|linuxkpi_|lkpi_80211|regulatory_|__ieee80211|rate_)' "$OBJ/missing.txt")"
+if [ "${MAC80211_STUB:-0}" = 1 ]; then
+	echo "still missing ($(wc -l < "$OBJ/missing.txt")):"
+else
+	echo "expected from the 802.11 stack, verified by 'make link-check-full' ($(wc -l < "$OBJ/missing.txt")):"
+fi
+echo "  802.11 glue: $(grep -cE '^(ieee80211_|cfg80211_|wiphy_|linuxkpi_|lkpi_80211|regulatory_|__ieee80211|rate_)' "$OBJ/missing.txt")"
 grep -E '^(ieee80211_|cfg80211_|wiphy_|linuxkpi_|lkpi_80211|regulatory_|__ieee80211|rate_)' "$OBJ/missing.txt" | sed 's/^/    /'
 echo "  other:"
 grep -vE '^(ieee80211_|cfg80211_|wiphy_|linuxkpi_|lkpi_80211|regulatory_|__ieee80211|rate_)' "$OBJ/missing.txt" | sed 's/^/    /'
+if [ "${MAC80211_STUB:-0}" = 1 ]; then
+	[ ! -s "$OBJ/missing.txt" ]
+fi

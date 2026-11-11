@@ -337,8 +337,16 @@ struct bpf_if *
 bpf_attach(const char *name, u_int dlt, u_int hdrlen,
     const struct bif_methods *methods, void *arg)
 {
+	/*
+	 * Not NULL: callers pair what they did at attach time on "the tap
+	 * exists" (ieee80211_radiotap_vattach() takes an interface reference
+	 * that vdetach only drops when iv_rawbpf != NULL).  The token is
+	 * opaque and has no listeners: bpf_peers_present() stays false.
+	 */
+	static char bsdkpi_bpf_if;
+
 	(void)name; (void)dlt; (void)hdrlen; (void)methods; (void)arg;
-	return (NULL);
+	return ((struct bpf_if *)(void *)&bsdkpi_bpf_if);
 }
 
 void

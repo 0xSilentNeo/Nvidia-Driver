@@ -19,6 +19,9 @@ struct mt7925_model_stats {
 	unsigned int fwdl_chunks;	/* FW_SCATTER chunks taken from the FWDL ring */
 	unsigned long fwdl_bytes;
 	unsigned int events;		/* events written to the MCU RX ring */
+	unsigned int scan_reqs;		/* UNI SCAN_REQ / UNI_SCAN_REQ commands (hw scans started) */
+	unsigned int scan_cancels;	/* UNI SCAN_REQ / UNI_SCAN_CANCEL commands */
+	unsigned int rx_frames;		/* 802.11 frames written to the data RX ring */
 	unsigned int irqs;		/* interrupt assertions */
 	unsigned int errors;		/* ring/buffer problems; must stay 0 */
 };
@@ -32,6 +35,13 @@ void mt7925_model_init(lkpi_os_pci_t pci, int verbose);
 void mt7925_model_fini(void);
 
 const struct mt7925_model_stats *mt7925_model_stats(void);
+
+/*
+ * Give the scan model one BSS to report: every hw scan then delivers a
+ * beacon from it (2.4 GHz channel number) before the scan-done event.
+ * ssid == NULL removes it.
+ */
+void mt7925_model_set_scan_bss(const char *ssid, const uint8_t bssid[6], int channel);
 
 /* The MMIO write hook; exposed so a test can chain its own hook in front. */
 void mt7925_model_mmio_write(volatile void *addr, uint32_t val);

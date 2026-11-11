@@ -1201,6 +1201,40 @@ lkpi_lsta_free(struct lkpi_sta *lsta, struct ieee80211_node *ni)
 
 	IMPROVE("Make sure everything is cleaned up.");
 
+#if defined(LKPI_MACOS)
+	/*
+	 * FreeBSD never frees the per-TID txqs lkpi_lsta_alloc() allocated
+	 * (the "free resources" note above); a kext cannot afford to lose
+	 * 16 of them per node.  The station is no longer known to the
+	 * driver here, so nothing can schedule them anymore.
+	 */
+	{
+		struct lkpi_hw *lhw = ni->ni_ic->ic_softc;
+		struct ieee80211_sta *sta = LSTA_TO_STA(lsta);
+		int tid;
+
+		for (tid = 0; tid < nitems(sta->txq); tid++) {
+			struct lkpi_txq *ltxq;
+
+			if (sta->txq[tid] == NULL)
+				continue;
+			ltxq = TXQ_TO_LTXQ(sta->txq[tid]);
+			spin_lock_bh(&lhw->txq_scheduled_lock[ltxq->txq.ac]);
+			if (ltxq->txq_entry.tqe_prev != NULL) {
+				TAILQ_REMOVE(&lhw->txq_scheduled[ltxq->txq.ac],
+				    ltxq, txq_entry);
+				TAILQ_ELEM_INIT(ltxq, txq_entry);
+			}
+			spin_unlock_bh(&lhw->txq_scheduled_lock[ltxq->txq.ac]);
+			skb_queue_purge(&ltxq->skbq);
+			spin_lock_destroy(&ltxq->skbq.lock);
+			LKPI_80211_LTXQ_LOCK_DESTROY(ltxq);
+			sta->txq[tid] = NULL;
+			free(ltxq, M_LKPI80211);
+		}
+	}
+#endif
+
 	/* Free lsta. */
 	lsta->ni = NULL;
 	ni->ni_drv_data = NULL;
@@ -7266,6 +7300,17 @@ linuxkpi_ieee80211_iffree(struct ieee80211_hw *hw)
 	free(lhw->ic, M_LKPI80211);
 	lhw->ic = NULL;
 
+#if defined(LKPI_MACOS)
+	/*
+	 * FreeBSD leaves the per-hw work queue (and its thread) behind.
+	 * Nothing may queue work on a hw that is being freed.
+	 */
+	if (lhw->workq != NULL) {
+		destroy_workqueue(lhw->workq);
+		lhw->workq = NULL;
+	}
+#endif
+
 	/*
 	 * Drain the deferred RX path.
 	 */
@@ -7373,6 +7418,10 @@ linuxkpi_set_ieee80211_dev(struct ieee80211_hw *hw)
 	dev = wiphy_dev(hw->wiphy);
 	if (dev != NULL) {
 		ic->ic_name = dev_name(dev);
+#if defined(LKPI_MACOS)
+		/* Name the embedded wiphy device after its parent. */
+		dev_set_name(&hw->wiphy->dev, "%s-phy", dev_name(dev));
+#endif
 		if (dev->bsddev != NULL) {
 			bus_identify_children(dev->bsddev);
 			bus_enumerate_hinted_children(dev->bsddev);
@@ -7707,8 +7756,14 @@ linuxkpi_ieee80211_ifattach(struct ieee80211_hw *hw)
 
 	if (bootverbose) {
 		if (hw->netdev_features != 0)
+#if defined(LKPI_MACOS)
+			/* netdev_features_t is 64 bit here; %b takes an int. */
+			ic_printf(ic, "netdev_features %b\n",
+			    (unsigned int)hw->netdev_features, NETIF_F_BITS);
+#else
 			ic_printf(ic, "netdev_features %b\n",
 			    hw->netdev_features, NETIF_F_BITS);
+#endif
 		ieee80211_announce(ic);
 	}
 
@@ -8746,6 +8801,10 @@ linuxkpi_wiphy_new(const struct cfg80211_ops *ops, size_t priv_len)
 
 	INIT_LIST_HEAD(&wiphy->wdev_list);
 	mutex_init(&wiphy->mtx);
+#if defined(LKPI_MACOS)
+	/* struct wiphy embeds its struct device like Linux (patches/0002). */
+	lkpi_device_init(&wiphy->dev, NULL, "phy0");
+#endif
 	TODO();
 
 	return (wiphy);
@@ -8760,6 +8819,9 @@ linuxkpi_wiphy_free(struct wiphy *wiphy)
 		return;
 
 	linuxkpi_wiphy_work_flush(wiphy, NULL);
+#if defined(LKPI_MACOS)
+	lkpi_device_fini(&wiphy->dev);
+#endif
 	mutex_destroy(&wiphy->mtx);
 
 	lwiphy = WIPHY_TO_LWIPHY(wiphy);

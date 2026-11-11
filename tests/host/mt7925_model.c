@@ -26,12 +26,22 @@
  *     written back, dma_idx advanced and the ring's TX done bit raised;
  *   - MCU events are written into the next free buffer of the MCU RX ring
  *     (MT7925_RXQ_MCU_WM): SD_LEN0 + LAST_SEC0 + DMA_DONE in ctrl, dma_idx
- *     advanced, RX done raised.  Nothing is ever put on the data ring.
+ *     advanced, RX done raised;
+ *   - the data ring (MT7925_RXQ_BAND0) only ever carries the one beacon the
+ *     scan model fabricates (see below).
  *
  *   MCU: see cmd_table[] below.  Every command that waits for a response is
  *   answered synchronously, from inside the kick, with an event carrying the
  *   same seq (and cid/status 0 for unified commands) unless a handler builds
  *   a real payload: patch semaphore, NIC capabilities, EFUSE reads.
+ *
+ *   Scan: UNI SCAN_REQ with tag UNI_SCAN_REQ is acknowledged and then
+ *   "completes" at once: if mt7925_model_set_scan_bss() configured a BSS,
+ *   one beacon from it is put on the data RX ring (connac3 RXD without
+ *   optional groups + the 802.11 frame), followed by the unsolicited
+ *   MCU_UNI_EVENT_SCAN_DONE with a BASIC TLV on the MCU ring.  The driver
+ *   itself defers the completion by MT792x_HW_SCAN_TIMEOUT, so the frame is
+ *   processed first.  UNI_SCAN_CANCEL is acknowledged and counted.
  *
  * Bus addresses in descriptors come from the 32-bit window of os_host.c and
  * are translated back with lkpi_host_dma_to_va().  Register offsets are
@@ -104,6 +114,11 @@ static struct {
 	u32 fwdl_got;
 	unsigned int fwdl_chunks;
 	u8 eeprom[0x1000];		/* EFUSE content served to EFUSE_CTRL queries */
+	bool scan_bss_valid;		/* a BSS for the scan model to report */
+	char scan_ssid[IEEE80211_MAX_SSID_LEN + 1];
+	u8 scan_bssid[ETH_ALEN];
+	u8 scan_chan;			/* 2.4 GHz channel number */
+	u16 scan_seq;
 	struct mt7925_model_stats stats;
 } m;
 
@@ -250,7 +265,6 @@ static int rx_deliver(int ring, const void *data, size_t len)
 	d->ctrl = cpu_to_le32(FIELD_PREP(MT_DMA_CTL_SD_LEN0, len) |
 			      MT_DMA_CTL_LAST_SEC0 | MT_DMA_CTL_DMA_DONE);
 	regs->dma_idx = (dma + 1) % ndesc;
-	m.stats.events++;
 	raise_int(rx_done_bit(ring));
 	return 0;
 }
@@ -334,7 +348,8 @@ static void evt_send(struct evt *e)
 
 	*len = cpu_to_le16(e->len - 8 * sizeof(__le32));
 	evt_rxd0(e);
-	rx_deliver(MT7925_RXQ_MCU_WM, e->buf, e->len);
+	if (rx_deliver(MT7925_RXQ_MCU_WM, e->buf, e->len) == 0)
+		m.stats.events++;
 }
 
 static void evt_add_tlv(struct evt *e, u16 tag, const void *data, size_t len)
@@ -539,6 +554,85 @@ static void cmd_efuse(const struct cmd *c)
 	evt_send(&e);
 }
 
+/*
+ * One beacon from the configured BSS on the data ring, as the MAC hands a
+ * received frame to the host: 8 words of RXD (no optional groups, no header
+ * translation, not for a known station), then the 802.11 frame.
+ */
+static void scan_deliver_beacon(void)
+{
+	static const u8 rates[] = { 0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24 };
+	u8 buf[256];
+	__le32 *rxd = (__le32 *)buf;
+	struct ieee80211_hdr_3addr *hdr;
+	size_t ssid_len = strlen(m.scan_ssid);
+	u8 *p;
+
+	memset(buf, 0, sizeof(buf));
+	hdr = (struct ieee80211_hdr_3addr *)(buf + 8 * sizeof(__le32));
+	hdr->frame_control = cpu_to_le16(0x0080)	/* management, beacon */;
+	eth_broadcast_addr(hdr->addr1);
+	memcpy(hdr->addr2, m.scan_bssid, ETH_ALEN);
+	memcpy(hdr->addr3, m.scan_bssid, ETH_ALEN);
+	hdr->seq_ctrl = cpu_to_le16(m.scan_seq++ << 4);
+	p = (u8 *)(hdr + 1);
+	memset(p, 0, 8);		/* timestamp */
+	p[0] = 0x80; p[1] = 0x1a; p[2] = 0x06;
+	p += 8;
+	*p++ = 100; *p++ = 0;		/* beacon interval, TU */
+	*p++ = 0x01; *p++ = 0x04;	/* capability: ESS, short slot time */
+	*p++ = WLAN_EID_SSID; *p++ = ssid_len;
+	memcpy(p, m.scan_ssid, ssid_len);
+	p += ssid_len;
+	*p++ = WLAN_EID_SUPP_RATES; *p++ = sizeof(rates);
+	memcpy(p, rates, sizeof(rates));
+	p += sizeof(rates);
+	*p++ = WLAN_EID_DS_PARAMS; *p++ = 1; *p++ = m.scan_chan;
+
+	rxd[0] = cpu_to_le32(FIELD_PREP(MT_RXD0_PKT_TYPE, PKT_TYPE_NORMAL) |
+			     FIELD_PREP(MT_RXD0_LENGTH, p - buf));
+	rxd[1] = cpu_to_le32(FIELD_PREP(MT_RXD1_NORMAL_WLAN_IDX, MT792x_WTBL_RESERVED));
+	rxd[2] = cpu_to_le32(MT_RXD2_NORMAL_NON_AMPDU);
+	rxd[3] = cpu_to_le32(FIELD_PREP(MT_RXD3_NORMAL_CH_FREQ, m.scan_chan) |
+			     FIELD_PREP(MT_RXD3_NORMAL_ADDR_TYPE, 3 /* B2M: broadcast */) |
+			     MT_RXD3_NORMAL_BEACON_MC);
+	model_log(1, "  scan: beacon from %02x:%02x:%02x:%02x:%02x:%02x \"%s\" on channel %u (%zu bytes)",
+		  m.scan_bssid[0], m.scan_bssid[1], m.scan_bssid[2], m.scan_bssid[3],
+		  m.scan_bssid[4], m.scan_bssid[5], m.scan_ssid, m.scan_chan, (size_t)(p - buf));
+	if (rx_deliver(MT7925_RXQ_BAND0, buf, p - buf) == 0)
+		m.stats.rx_frames++;
+}
+
+static void cmd_scan(const struct cmd *c)
+{
+	u8 fixed[4] = { 0 };		/* the driver skips 4 bytes before the TLVs */
+	u8 basic[8] = { 0 };
+	struct evt e;
+
+	ack_uni_status(c, 0);
+	switch (c->tag) {
+	case UNI_SCAN_REQ:
+		m.stats.scan_reqs++;
+		model_log(1, "  hw scan request (%zu bytes of TLVs)", c->plen - 4);
+		if (m.scan_bss_valid)
+			scan_deliver_beacon();
+		/* unsolicited: seq 0 */
+		evt_uni_init(&e, MCU_UNI_EVENT_SCAN_DONE, 0);
+		((struct mt7925_mcu_rxd *)e.buf)->option = MCU_UNI_CMD_UNSOLICITED_EVENT;
+		evt_put(&e, fixed, sizeof(fixed));
+		evt_add_tlv(&e, UNI_EVENT_SCAN_DONE_BASIC, basic, sizeof(basic));
+		evt_send(&e);
+		model_log(1, "  scan done event sent");
+		break;
+	case UNI_SCAN_CANCEL:
+		m.stats.scan_cancels++;
+		model_log(1, "  hw scan cancel");
+		break;
+	default:
+		break;
+	}
+}
+
 enum ack_kind {
 	ACK_NONE,		/* driver does not wait: no event */
 	ACK_STATUS,		/* generic event: legacy status byte / uni cid+status 0 */
@@ -587,7 +681,7 @@ static const struct cmd_entry {
 	{ true, MCU_UNI_CMD_FIXED_RATE_TABLE,	"FIXED_RATE_TABLE",	ACK_STATUS },
 	{ true, MCU_UNI_CMD_RSSI_MONITOR,	"RSSI_MONITOR",		ACK_STATUS },
 	{ true, MCU_UNI_CMD_SNIFFER,		"SNIFFER",		ACK_STATUS },
-	{ true, MCU_UNI_CMD_SCAN_REQ,		"SCAN_REQ",		ACK_STATUS },
+	{ true, MCU_UNI_CMD_SCAN_REQ,		"SCAN_REQ",		ACK_HANDLER, cmd_scan },
 	{ true, MCU_UNI_CMD_ROC,		"ROC",			ACK_STATUS },
 	{ true, MCU_UNI_CMD_REG_ACCESS,		"REG_ACCESS",		ACK_STATUS },
 	{ true, MCU_UNI_CMD_SET_DBDC_PARMS,	"SET_DBDC_PARMS",	ACK_STATUS },
@@ -879,6 +973,16 @@ void mt7925_model_fini(void)
 	lkpi_os_spinlock_free(m.lock);
 	m.lock = NULL;
 	m.bar0 = NULL;
+}
+
+void mt7925_model_set_scan_bss(const char *ssid, const uint8_t bssid[6], int channel)
+{
+	m.scan_bss_valid = ssid != NULL;
+	if (!ssid)
+		return;
+	strscpy(m.scan_ssid, ssid, sizeof(m.scan_ssid));
+	memcpy(m.scan_bssid, bssid, ETH_ALEN);
+	m.scan_chan = channel;
 }
 
 const struct mt7925_model_stats *mt7925_model_stats(void)

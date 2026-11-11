@@ -13,7 +13,7 @@ when the behaviour was seen on a machine, not when the code was written.
 - [x] Define the OS boundary (`lkpi/os.h`) and the runtime init sequence (`lkpi/runtime.h`).
 - [x] C runtime implementations: locks, jiffies, timers, workqueues, kthreads, tasklets, RCU, skbuff, page pool, NAPI, idr, PCI bus layer, DMA, devres, firmware, printk, debugfs stubs.
 - [x] IOKit kext shell written: `MT7925PCIe` IOService, `lkpi/os.h` backend, Info.plist, Makefile (not yet compiled: needs a Mac).
-- [x] Host unit tests against the libc backend (`make host-tests`): 371 checks.
+- [x] Host unit tests against the libc backend (`make host-tests`): 443 checks (131 core, 240 runtime, 72 probe).
 - [x] Host integration test `tests/host/test_probe`: the **real `mt7925_pci_probe()`** runs against a modelled fake device through the whole C stack.
 - [x] Software MCU/DMA model (`tests/host/mt7925_model.c`): answers the 18 bring-up commands over the real TX/RX rings and interrupts, so firmware download (1.27 MB in 314 chunks), NIC capability, EFUSE and `ieee80211_register_hw` all complete on a developer machine in about 5 s, with a clean remove. Valgrind clean.
 
@@ -44,9 +44,11 @@ Design: `docs/PHASE3_NET80211.md`.
 
 - [x] Vendor FreeBSD net80211 (`src/net80211/upstream`, pinned) and the BSD support files (`sys/queue.h`, `if_media.h`, rijndael AES).
 - [x] `bsdkpi`: FreeBSD kernel API on LinuxKPI (mbuf, callout, taskqueue, ifnet, ifmedia, sysctl, module registry). The station-mode net80211 set compiles clean (`make check-net80211`) and links with nothing undefined (`make link-check-net80211`).
-- [ ] Call `bsdkpi_init()` from the runtime, adapt `linux_80211.c` to bsdkpi + LinuxKPI, drop `mac80211_stub.c`.
-
-- [ ] Adapt FreeBSD's `linux_80211.c` (mac80211 → net80211 glue, already vendored in `src/lkpi80211/`) to that stack.
+- [x] Call `bsdkpi_init()` from the runtime (`lkpi_runtime_init()`, "net80211" subsystem).
+- [x] Adapt FreeBSD's `linux_80211.c` (mac80211 → net80211 glue, `src/lkpi80211/`) to bsdkpi + LinuxKPI: a force-included prelude for the header order, shim extensions, six `LKPI_MACOS` hunks (`patches/0004`); `make check-lkpi80211` clean, `make link-check-full`: the complete program (98 objects) has no undefined or duplicate symbol. `mac80211_stub.c` is out of the default build (`MAC80211_STUB=1` brings it back).
+- [x] Host: `test_probe` links the real stack. `ieee80211_register_hw` attaches an `ieee80211com` (2.4 + 5 GHz channels), a station vap is created through the "wlan" cloner and brought up, a scan (state machine and `IEEE80211_IOC_SCAN_REQ`) reaches the model as MCU `SCAN_REQ`, the model's beacon lands in net80211's scan cache, vap destroy and detach are clean (valgrind memcheck: 0 errors).
+- [ ] Build the stack into the kext (`src/kext/Makefile` still links the phase-1 stub; needs a Mac).
+- [ ] 6 GHz channels in the glue/net80211 (the driver advertises them; FreeBSD's glue drops the band).
 - [ ] Scan: results visible through a debug IOUserClient tool.
 - [ ] Association to an open network, then WPA2-PSK and WPA3-SAE (SAE is done in the stack, 4-way handshake in kernel like FreeBSD).
 - [ ] Data traffic through a plain `IOEthernetInterface` as an interim (shows up as Ethernet; DHCP works).
