@@ -1,6 +1,47 @@
 --- a/src/lkpi80211/linux_80211.c
 +++ b/src/lkpi80211/linux_80211.c
-@@ -1201,6 +1201,40 @@
+@@ -237,7 +237,12 @@
+ {
+ 	int bit, i;
+ 
++#if defined(LKPI_MACOS)
++	/* uint64_t is unsigned long long on Darwin, uintmax_t unsigned long. */
++	sbuf_printf(s, "%s %#010jx", prefix, (uintmax_t)flags);
++#else
+ 	sbuf_printf(s, "%s %#010jx", prefix, flags);
++#endif
+ 
+ 	i = 0;
+ 	for (bit = 0; bit < BITS_PER_TYPE(flags); bit++) {
+@@ -390,7 +395,11 @@
+ 
+ 		/* Dump queue information. */
+ 		sbuf_printf(s, " Queue information:\n");
++#if defined(LKPI_MACOS)
++		sbuf_printf(s, "  frms direct tx %ju\n", (uintmax_t)lsta->frms_tx);
++#else
+ 		sbuf_printf(s, "  frms direct tx %ju\n", lsta->frms_tx);
++#endif
+ 		for (tid = 0; tid <= IEEE80211_NUM_TIDS; tid++) {
+ 			struct lkpi_txq *ltxq;
+ 
+@@ -413,9 +422,15 @@
+ 			    ltxq->txq_generation,
+ 			    skb_queue_len_lockless(&ltxq->skbq));
+ #endif
++#if defined(LKPI_MACOS)
++			sbuf_printf(s, "         frms_enqueued %ju frms_dequeued %ju "
++			    "frms_tx %ju\n", (uintmax_t)ltxq->frms_enqueued,
++			    (uintmax_t)ltxq->frms_dequeued, (uintmax_t)ltxq->frms_tx);
++#else
+ 			sbuf_printf(s, "         frms_enqueued %ju frms_dequeued %ju "
+ 			    "frms_tx %ju\n",
+ 			    ltxq->frms_enqueued, ltxq->frms_dequeued, ltxq->frms_tx);
++#endif
+ 		}
+ 	}
+ 	wiphy_unlock(hw->wiphy);
+@@ -1201,6 +1216,40 @@
  
  	IMPROVE("Make sure everything is cleaned up.");
  
@@ -41,7 +82,7 @@
  	/* Free lsta. */
  	lsta->ni = NULL;
  	ni->ni_drv_data = NULL;
-@@ -7266,6 +7300,17 @@
+@@ -7266,6 +7315,17 @@
  	free(lhw->ic, M_LKPI80211);
  	lhw->ic = NULL;
  
@@ -59,7 +100,7 @@
  	/*
  	 * Drain the deferred RX path.
  	 */
-@@ -7373,6 +7418,10 @@
+@@ -7373,6 +7433,10 @@
  	dev = wiphy_dev(hw->wiphy);
  	if (dev != NULL) {
  		ic->ic_name = dev_name(dev);
@@ -70,7 +111,7 @@
  		if (dev->bsddev != NULL) {
  			bus_identify_children(dev->bsddev);
  			bus_enumerate_hinted_children(dev->bsddev);
-@@ -7707,8 +7756,14 @@
+@@ -7707,8 +7771,14 @@
  
  	if (bootverbose) {
  		if (hw->netdev_features != 0)
@@ -85,7 +126,7 @@
  		ieee80211_announce(ic);
  	}
  
-@@ -8746,6 +8801,10 @@
+@@ -8746,6 +8816,10 @@
  
  	INIT_LIST_HEAD(&wiphy->wdev_list);
  	mutex_init(&wiphy->mtx);
@@ -96,7 +137,7 @@
  	TODO();
  
  	return (wiphy);
-@@ -8760,6 +8819,9 @@
+@@ -8760,6 +8834,9 @@
  		return;
  
  	linuxkpi_wiphy_work_flush(wiphy, NULL);

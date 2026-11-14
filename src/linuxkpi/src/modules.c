@@ -8,16 +8,18 @@
  * mt7925 PCIe driver is the only module_init in this source set.
  *
  * Module parameters: module_param() (linux/moduleparam.h) places a
- * struct lkpi_param descriptor in the "__DATA,__lkpi_params" section.
- * lkpi_param_set() walks that section if the link step provides its
- * bounds as the weak symbols below.
+ * struct lkpi_param descriptor in the "__DATA,__lkpi_params" section and
+ * lkpi_param_set() walks that section.
  *
- * TODO(kext): on Mach-O the bounds are the linker-synthesised symbols
- * "section$start$__DATA$__lkpi_params" / "section$end$__DATA$__lkpi_params";
- * alias them to __lkpi_params_start/__lkpi_params_end from the C++ side
- * (asm labels) once the kext link is in place.  On the Linux host and
- * until then the weak references resolve to NULL and lkpi_param_set()
- * reports -ENOENT for every name, which keeps the defaults.
+ * On Mach-O (the kext, and a macOS host) the bounds are the symbols ld64
+ * synthesises for every section, "section$start$__DATA$__lkpi_params" and
+ * "section$end$__DATA$__lkpi_params" (an empty section if nothing landed in
+ * it), bound below with asm labels.  A plain weak reference would not do in
+ * a kext: no KPI exports the name, and kmutil binds unresolved weak imports
+ * to gOSKextUnresolved, not to NULL, so every parameter would be "unknown".
+ * ELF has no such names for a section called "__DATA,__lkpi_params", so on
+ * the Linux host the weak references stay NULL and lkpi_param_set() reports
+ * -ENOENT for every name, which keeps the defaults.
  */
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -27,8 +29,13 @@
 #include <linux/module.h>
 #include <lkpi/runtime.h>
 
+#if defined(__APPLE__)
+extern const struct lkpi_param __lkpi_params_start[] __asm("section$start$__DATA$__lkpi_params");
+extern const struct lkpi_param __lkpi_params_end[] __asm("section$end$__DATA$__lkpi_params");
+#else
 extern const struct lkpi_param __lkpi_params_start[] __attribute__((weak));
 extern const struct lkpi_param __lkpi_params_end[] __attribute__((weak));
+#endif
 
 static int lkpi_param_store(const struct lkpi_param *p, const char *value)
 {
@@ -94,8 +101,10 @@ int lkpi_param_set(const char *name, const char *value)
 
 	if (!name || !value)
 		return -EINVAL;
+#if !defined(__APPLE__)
 	if (!__lkpi_params_start || !__lkpi_params_end)
-		return -ENOENT;	/* section bounds not wired up (see TODO above) */
+		return -ENOENT;	/* ELF host: no section bounds (see above) */
+#endif
 	for (p = __lkpi_params_start; p < __lkpi_params_end; p++) {
 		if (p->name && !strcmp(p->name, name))
 			return lkpi_param_store(p, value);

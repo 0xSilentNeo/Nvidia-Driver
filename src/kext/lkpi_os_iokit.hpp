@@ -20,14 +20,22 @@ class IOInterruptEventSource;
 class IOMemoryMap;
 class OSObject;
 
-/* Compile-time knobs.  Everything here defaults to the conservative choice
- * that is known to build against the public Kernel.framework headers; flip
- * them once the symbol has been confirmed on the target SDK. */
+/* Compile-time knobs.  The defaults keep the behaviour the port was written
+ * with.  What the headers and exports lists say about each (xnu-12377,
+ * checked with make check-xnu / check-xnu-symbols, see README.md):
+ *   THREAD_POLICY  thread_policy_set(): mach/thread_act.h, com.apple.kpi.mach
+ *   THREAD_BLOCK   thread_block(): kern/sched_prim.h, com.apple.kpi.mach
+ *   CPU_NUMBER     cpu_number(): no public prototype; exported to third
+ *                  parties by com.apple.kpi.unsupported on x86_64 only
+ *   MACH_CONTINUOUS_TIME  mach/mach_time.h, com.apple.kpi.mach */
 #ifndef LKPI_OS_HAVE_THREAD_POLICY
 #define LKPI_OS_HAVE_THREAD_POLICY 0		/* thread_policy_set() for realtime kthreads */
 #endif
 #ifndef LKPI_OS_HAVE_CPU_NUMBER
-#define LKPI_OS_HAVE_CPU_NUMBER 0		/* cpu_number() (kern/cpu_number.h, kpi.unsupported) */
+#define LKPI_OS_HAVE_CPU_NUMBER 0		/* cpu_number() (kpi.unsupported, x86_64) */
+#endif
+#if LKPI_OS_HAVE_CPU_NUMBER && defined(__arm64__)
+#error "cpu_number() is exported only by com.apple.kpi.private on arm64, which third-party kexts cannot link"
 #endif
 #ifndef LKPI_OS_HAVE_THREAD_BLOCK
 #define LKPI_OS_HAVE_THREAD_BLOCK 0		/* thread_block(THREAD_CONTINUE_NULL) for yield */

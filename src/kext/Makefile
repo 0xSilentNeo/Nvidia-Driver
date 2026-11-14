@@ -6,6 +6,12 @@
 #   make ARCHS="x86_64 arm64e"   fat binary (arm64e is what the Apple Silicon
 #                        kernel loads; keep it compiling, not yet tested)
 #   make check-syntax    clang -fsyntax-only on the C++ files (needs an SDK)
+#   make check-xnu XNU_HDRS=/abs/tree   the same compile for every source of
+#                        the kext against an SDK stand-in assembled from Apple's
+#                        open-source xnu + IOPCIFamily (no Mac needed; see
+#                        scripts/xnu-kernel-headers.sh and "check-xnu" below)
+#   make check-xnu-symbols XNU_HDRS=/abs/tree   every external symbol of the
+#                        kext's objects against the KPI exports lists
 #   make load / unload   kmutil helpers (sudo; see README.md for SIP/consent)
 #   make clean
 #
@@ -62,9 +68,12 @@ MT76_SRCS  ?= mmio.c util.c dma.c mac80211.c eeprom.c tx.c agg-rx.c mcu.c \
 # top-level MAC80211_STUB=1 configuration, with LKPI_NO_NET80211 so that
 # runtime.c does not start bsdkpi).  The real stack (src/bsdkpi, src/net80211,
 # src/lkpi80211) builds, links and runs on the host (make link-check-full,
-# tests/host/test_probe); adding it here needs a Mac to validate bsdkpi's
-# #include_next <sys/types.h>/<sys/cdefs.h> against Kernel.framework and the
-# per-directory flags (NET80211_CFLAGS, LKPI80211_CFLAGS with the prelude).
+# tests/host/test_probe), and `make check-xnu` compiles it (bsdkpi's
+# #include_next <sys/types.h>/<sys/cdefs.h> included) against an open-source
+# Kernel.framework with the per-directory flags (NET80211_CFLAGS,
+# LKPI80211_CFLAGS with the prelude) and resolves its symbols against the
+# KPI exports (check-xnu-symbols STACK=real); what is left is wiring those
+# per-directory rules in here and testing on a Mac.
 LKPI_SRCS  := $(wildcard $(TOP)/src/linuxkpi/src/*.c)
 LKPI80211_SRCS ?=
 
@@ -78,7 +87,7 @@ LKPI_CFLAGS := -std=gnu11 -fwrapv -fno-strict-aliasing -D__KERNEL__ -DLKPI_VERSI
                -I$(KPI_INC) -I$(TOP)/src/net80211 -I$(MT76_DIR) -include linux/kconfig.h $(CONFIG_DEFS) \
                -Wall -Wno-unused-parameter -Wno-gnu -Wno-missing-field-initializers \
                -Wno-sign-compare -Wno-address-of-packed-member -Wno-pointer-sign \
-               -Wno-unused-function -Wno-microsoft-anon-tag -Wno-c11-extensions \
+               -Wno-unused-function -Wno-microsoft-anon-tag -Wno-c11-extensions -Wno-c23-extensions \
                -Werror=implicit-function-declaration -Werror=incompatible-pointer-types \
                -Werror=int-conversion -Werror=return-type
 
@@ -125,8 +134,11 @@ ARCH_FLAGS_arm64  :=
 CXXFLAGS_EXTRA ?=
 CXXFLAGS := $(COMMON_FLAGS) -std=gnu++17 -fapple-kext -fno-rtti -fno-exceptions \
             -I$(KPI_INC) -Wno-unused-parameter $(CXXFLAGS_EXTRA)
-# C: the Linux sources and the C LinuxKPI layer.
-CFLAGS   := $(COMMON_FLAGS) $(LKPI_CFLAGS) -I$(MT76_DIR)/mt7925 -Wno-unused-but-set-variable
+# C: the Linux sources and the C LinuxKPI layer, held to the warning set of
+# the host gates (make check-headers): -Wall plus LKPI_CFLAGS, without the
+# -Wextra the kext's own code gets (the vendored FreeBSD net80211 headers
+# that net/mac80211.h pulls in trip -Wignored-qualifiers, for example).
+CFLAGS   := $(filter-out -Wextra,$(COMMON_FLAGS)) $(LKPI_CFLAGS) -I$(MT76_DIR)/mt7925 -Wno-unused-but-set-variable
 # C: the kext's own C files (kmod info, stubs, generated firmware table).
 CFLAGS_KEXT := $(COMMON_FLAGS) -std=gnu11
 ASFLAGS  := -isysroot $(SDK) -mmacosx-version-min=$(MIN_OS)
@@ -149,7 +161,8 @@ objs     = $(call obj_cxx,$(1)) $(call obj_kc,$(1)) $(call obj_mt76,$(1)) \
 
 THIN_BINARIES := $(foreach a,$(ARCHS),$(BUILD)/$(KEXT_NAME).$(a))
 
-.PHONY: all kext check-sdk check-syntax bundle load unload clean fwtable
+.PHONY: all kext check-sdk check-syntax bundle load unload clean fwtable \
+        check-xnu check-xnu-symbols xnu-sdk _check-xnu _check-xnu-symbols
 
 all: kext
 
@@ -236,6 +249,168 @@ check-syntax: check-sdk
 				printf '  ok    %s (%s)\n' $$f $$a; else printf '  FAIL  %s (%s)\n' $$f $$a; fail=1; fi; \
 		done; \
 	done; exit $${fail:-0}
+
+# -- check-xnu: the kext's compile without a Mac ------------------------------
+# XNU_HDRS is an SDK stand-in (System/Library/Frameworks/Kernel.framework/
+# Headers + the few usr/include headers those include + KPI/<arch>/*.exports)
+# made by scripts/xnu-kernel-headers.sh from Apple's open-source xnu and
+# IOPCIFamily; give an absolute path.  With XNU_SRC and IOPCIFAMILY_SRC
+# instead, the tree is assembled into $(BUILD)/xnu-sdk first.
+#
+# The check re-runs this Makefile with KEXT_SDK=$(XNU_HDRS), so every flag is
+# exactly the one the real build uses; only `-arch A` becomes
+# `-target A-apple-darwin` (clang on a non-Apple host needs the triple).
+# Compiled with -fsyntax-only, reported in sections:
+#   kext C++ / kext C   the IOKit half (+ the generated firmware table);
+#   C set (kext)        what the kext links today: mt76 + LinuxKPI including
+#                       mac80211_stub.c, LKPI_NO_NET80211=1, the kext's CFLAGS;
+#   C set (real stack)  the top-level MAC80211_STUB=0 set: mt76 + LinuxKPI
+#                       without the stub + bsdkpi + net80211 + lkpi80211, each
+#                       with its top-level per-directory flags on top of the
+#                       kext's kernel flags.  Reported separately; it is not
+#                       linked into the kext yet.
+# "ok" means no diagnostics at all; warnings are printed and counted.
+# check-xnu-symbols compiles the kext set to Mach-O objects and resolves every
+# external symbol against the exports lists of the OSBundleLibraries in
+# Info.plist (scripts/xnu-kext-symbols.sh); STACK=real checks the real-stack
+# set instead.
+XNU_HDRS        ?=
+XNU_SRC         ?=
+IOPCIFAMILY_SRC ?=
+XNU_ARCHS       ?= x86_64
+XNU_CC          ?= $(CC)
+XNU_CXX         ?= $(CXX)
+STACK           ?= kext
+XNU_TRIPLE_x86_64 := x86_64-apple-darwin
+XNU_TRIPLE_arm64e := arm64e-apple-darwin
+XNU_TRIPLE_arm64  := arm64-apple-darwin
+# -fno-ptrauth-intrinsics exists in Apple clang only.
+XNU_ARCH_FLAGS_x86_64 := $(ARCH_FLAGS_x86_64)
+XNU_ARCH_FLAGS_arm64e :=
+XNU_ARCH_FLAGS_arm64  :=
+XNU_CHECK_DIR   := $(abspath $(BUILD)/xnu-check)
+# Kernel flags for the real-stack set: the kext's, minus its LinuxKPI flags.
+XNU_STACK_FLAGS  = $(filter-out -Wextra,$(COMMON_FLAGS)) -Wno-unused-but-set-variable
+# Upstream LLVM (15+) lowers Mach-O global destructors (the gMetaClass object
+# of every OSDefineMetaClassAndStructors) to __cxa_atexit(), which no KPI
+# exports: XNU's OSRuntime runs a kext's __mod_term_func instead.  Apple clang
+# evidently keeps __mod_term_func for kexts (every C++ kext links), so the
+# object check asks upstream clang for the same; set it empty for Apple clang.
+XNU_CXX_CODEGEN ?= -mllvm -disable-atexit-based-global-dtor-lowering
+
+ifeq ($(XNU_HDRS),)
+ifneq ($(XNU_SRC),)
+XNU_HDRS_AUTO := 1
+override XNU_HDRS := $(abspath $(BUILD)/xnu-sdk)
+endif
+endif
+XNU_SUBMAKE = $(MAKE) --no-print-directory KEXT_SDK=$(abspath $(XNU_HDRS)) XNU_HDRS=$(abspath $(XNU_HDRS)) \
+              XNU_ARCHS="$(XNU_ARCHS)" XNU_CC="$(XNU_CC)" XNU_CXX="$(XNU_CXX)" STACK=$(STACK) \
+              XNU_CXX_CODEGEN="$(XNU_CXX_CODEGEN)"
+
+xnu-sdk:
+ifeq ($(XNU_HDRS),)
+	$(error set XNU_HDRS=/abs/path made by scripts/xnu-kernel-headers.sh, or XNU_SRC=<xnu checkout> IOPCIFAMILY_SRC=<IOPCIFamily checkout>)
+endif
+ifeq ($(XNU_HDRS_AUTO),1)
+	$(Q)sh $(TOP)/scripts/xnu-kernel-headers.sh $(XNU_SRC) $(IOPCIFAMILY_SRC) $(XNU_HDRS)
+endif
+	@test -f "$(XNU_HDRS)/MANIFEST" -a -d "$(XNU_HDRS)/System/Library/Frameworks/Kernel.framework/Headers" || \
+		{ echo "$(XNU_HDRS): not a tree made by scripts/xnu-kernel-headers.sh"; exit 1; }
+
+check-xnu: xnu-sdk
+	$(Q)$(XNU_SUBMAKE) _check-xnu
+
+check-xnu-symbols: xnu-sdk
+	$(Q)$(XNU_SUBMAKE) _check-xnu-symbols
+
+# chk SECTION FILE COMPILER FLAGS...: one -fsyntax-only compile, reported.
+# Runs in a single shell per arch so the counters survive.
+define XNU_CHK_SH
+chk() { sec=$$1; f=$$2; shift 2; \
+	if "$$@" -fsyntax-only "$$f" > $(XNU_CHECK_DIR)/log 2>&1; then \
+		if [ -s $(XNU_CHECK_DIR)/log ]; then printf '  warn  %s\n' "$$f"; cat $(XNU_CHECK_DIR)/log; \
+			echo "$$sec warn" >> $(XNU_CHECK_DIR)/tally; \
+		else printf '  ok    %s\n' "$$f"; echo "$$sec ok" >> $(XNU_CHECK_DIR)/tally; fi; \
+	else printf '  FAIL  %s\n' "$$f"; cat $(XNU_CHECK_DIR)/log; echo "$$sec FAIL" >> $(XNU_CHECK_DIR)/tally; fi; }
+endef
+
+# Top-level values of the real-stack set (paths relative to the repository).
+XNU_TOPVAR = $$($(MAKE) --no-print-directory -s -C $(TOP) MAC80211_STUB=0 print-$(1))
+
+_check-xnu: fwtable
+	@mkdir -p $(XNU_CHECK_DIR); rm -f $(XNU_CHECK_DIR)/tally; $(XNU_CHK_SH); \
+	for a in $(XNU_ARCHS); do \
+		case $$a in x86_64) T="$(XNU_TRIPLE_x86_64) $(XNU_ARCH_FLAGS_x86_64)";; \
+		arm64e) T="$(XNU_TRIPLE_arm64e) $(XNU_ARCH_FLAGS_arm64e)";; \
+		arm64) T="$(XNU_TRIPLE_arm64) $(XNU_ARCH_FLAGS_arm64)";; *) echo "unknown arch $$a"; exit 2;; esac; \
+		echo "== $$a: kext C++"; \
+		for f in $(KEXT_CXX_SRCS); do chk "$$a/kext-C++" $$f $(XNU_CXX) -target $$T $(CXXFLAGS); done; \
+		echo "== $$a: kext C"; \
+		for f in $(KEXT_C_SRCS) $(FW_GEN_DIR)/fw_table.c; do chk "$$a/kext-C" $$f $(XNU_CC) -target $$T $(CFLAGS_KEXT); done; \
+		echo "== $$a: C set (kext: mt76 + LinuxKPI with mac80211_stub.c)"; \
+		for f in $(MT76_SRCS); do chk "$$a/C-kext" $(MT76_DIR)/$$f $(XNU_CC) -target $$T $(CFLAGS) \
+			-DKBUILD_MODNAME="\"$$(basename $$f .c)\""; done; \
+		for f in $(LKPI_SRCS); do chk "$$a/C-kext" $$f $(XNU_CC) -target $$T $(CFLAGS) -DKBUILD_MODNAME='"lkpi"'; done; \
+		echo "== $$a: C set (real 802.11 stack, MAC80211_STUB=0)"; \
+		L="$(call XNU_TOPVAR,LKPI_CFLAGS)"; N="$(call XNU_TOPVAR,NET80211_CFLAGS)"; \
+		G="$(call XNU_TOPVAR,LKPI80211_CFLAGS)"; ND="$(call XNU_TOPVAR,N80211_DIR)"; \
+		for f in $(call XNU_TOPVAR,MT76_SRCS); do (cd $(TOP) && chk "$$a/C-stack" src/mt76/$$f $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$L \
+			-Isrc/mt76/mt7925 -DKBUILD_MODNAME="\"$$(basename $$f .c)\""); done; \
+		for f in $(call XNU_TOPVAR,LKPI_SRCS); do (cd $(TOP) && chk "$$a/C-stack" $$f $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$L \
+			-Isrc/mt76/mt7925 -DKBUILD_MODNAME='"lkpi"'); done; \
+		for f in $(call XNU_TOPVAR,NET80211_SRCS); do (cd $(TOP) && chk "$$a/C-stack" $$ND/$$f $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$N \
+			-DKBUILD_MODNAME='"net80211"'); done; \
+		for f in $(call XNU_TOPVAR,NET80211_EXTRA_SRCS) $(call XNU_TOPVAR,BSDKPI_SRCS); do (cd $(TOP) && chk "$$a/C-stack" $$f \
+			$(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$N -DKBUILD_MODNAME='"bsdkpi"'); done; \
+		for f in $(call XNU_TOPVAR,LKPI80211_SRCS); do (cd $(TOP) && chk "$$a/C-stack" $$f $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$G \
+			-DKBUILD_MODNAME='"lkpi80211"'); done; \
+	done; \
+	echo "== summary (ok / with warnings / failed)"; \
+	sort $(XNU_CHECK_DIR)/tally | uniq -c | awk '{ n[$$2] = n[$$2] " " $$3 "=" $$1 } END { for (s in n) print "  " s ":" n[s] }' | sort; \
+	! grep -q ' FAIL$$' $(XNU_CHECK_DIR)/tally
+
+# -- check-xnu-symbols ---------------------------------------------------------
+# Same sets, compiled to Mach-O objects (-c), then every symbol they leave
+# undefined must be exported by a bundle in OSBundleLibraries or by libkmod.
+define XNU_CC_SH
+cco() { o=$$1; shift; mkdir -p "$$(dirname "$$o")"; "$$@" -c -o "$$o" || { echo "FAIL $$o"; echo x >> $(XNU_CHECK_DIR)/ofail; }; }
+endef
+
+_check-xnu-symbols: fwtable
+	@rm -rf "$(XNU_CHECK_DIR)/obj"; mkdir -p "$(XNU_CHECK_DIR)/obj"; rm -f "$(XNU_CHECK_DIR)/ofail"; $(XNU_CC_SH); \
+	for a in $(XNU_ARCHS); do \
+		case $$a in x86_64) T="$(XNU_TRIPLE_x86_64) $(XNU_ARCH_FLAGS_x86_64)"; kpi=x86_64;; \
+		arm64e) T="$(XNU_TRIPLE_arm64e) $(XNU_ARCH_FLAGS_arm64e)"; kpi=arm64;; \
+		arm64) T="$(XNU_TRIPLE_arm64) $(XNU_ARCH_FLAGS_arm64)"; kpi=arm64;; *) echo "unknown arch $$a"; exit 2;; esac; \
+		O=$(XNU_CHECK_DIR)/obj/$$a; \
+		for f in $(KEXT_CXX_SRCS); do cco $$O/kext/$${f%.cpp}.o $(XNU_CXX) -target $$T $(CXXFLAGS) $(XNU_CXX_CODEGEN) $$f; done; \
+		for f in $(KEXT_C_SRCS); do cco $$O/kext/$${f%.c}.o $(XNU_CC) -target $$T $(CFLAGS_KEXT) $$f; done; \
+		cco $$O/fw/fw_table.o $(XNU_CC) -target $$T $(CFLAGS_KEXT) $(FW_GEN_DIR)/fw_table.c; \
+		cco $$O/fw/fw_blobs.o $(XNU_CC) -target $$T $(ASFLAGS) $(FW_GEN_DIR)/fw_blobs.S; \
+		if [ "$(STACK)" = real ]; then \
+			L="$(call XNU_TOPVAR,LKPI_CFLAGS)"; N="$(call XNU_TOPVAR,NET80211_CFLAGS)"; \
+			G="$(call XNU_TOPVAR,LKPI80211_CFLAGS)"; ND="$(call XNU_TOPVAR,N80211_DIR)"; \
+				for f in $(call XNU_TOPVAR,MT76_SRCS); do (cd $(TOP) && cco $$O/mt76/$${f%.c}.o $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$L \
+				-Isrc/mt76/mt7925 -DKBUILD_MODNAME="\"$$(basename $$f .c)\"" src/mt76/$$f); done; \
+			for f in $(call XNU_TOPVAR,LKPI_SRCS); do (cd $(TOP) && cco $$O/lkpi/$$(basename $$f .c).o $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$L \
+				-Isrc/mt76/mt7925 -DKBUILD_MODNAME='"lkpi"' $$f); done; \
+			for f in $(call XNU_TOPVAR,NET80211_SRCS); do (cd $(TOP) && cco $$O/net80211/$${f%.c}.o $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$N \
+				-DKBUILD_MODNAME='"net80211"' $$ND/$$f); done; \
+			for f in $(call XNU_TOPVAR,NET80211_EXTRA_SRCS) $(call XNU_TOPVAR,BSDKPI_SRCS); do (cd $(TOP) && \
+				cco $$O/bsdkpi/$$(echo $$f | tr / _ | sed 's/\.c$$//').o $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$N -DKBUILD_MODNAME='"bsdkpi"' $$f); done; \
+			for f in $(call XNU_TOPVAR,LKPI80211_SRCS); do (cd $(TOP) && cco $$O/lkpi80211/$$(basename $$f .c).o $(XNU_CC) -target $$T $(XNU_STACK_FLAGS) $$G \
+				-DKBUILD_MODNAME='"lkpi80211"' $$f); done; \
+		else \
+			for f in $(MT76_SRCS); do cco $$O/mt76/$${f%.c}.o $(XNU_CC) -target $$T $(CFLAGS) \
+				-DKBUILD_MODNAME="\"$$(basename $$f .c)\"" $(MT76_DIR)/$$f; done; \
+			for f in $(LKPI_SRCS); do cco $$O/lkpi/$$(basename $$f .c).o $(XNU_CC) -target $$T $(CFLAGS) \
+				-DKBUILD_MODNAME='"lkpi"' $$f; done; \
+		fi; \
+		[ ! -f $(XNU_CHECK_DIR)/ofail ] || exit 1; \
+		echo "== $$a ($(STACK) set): $$(find $$O -name '*.o' | wc -l) objects"; \
+		sh $(TOP)/scripts/xnu-kext-symbols.sh $(XNU_HDRS)/KPI/$$kpi Info.plist $$(find $$O -name '*.o' | sort) || exit 1; \
+	done
 
 # Loading an unsigned kext needs SIP (csrutil) relaxed and, on macOS 11+,
 # user approval of the kext in System Settings > Privacy & Security followed

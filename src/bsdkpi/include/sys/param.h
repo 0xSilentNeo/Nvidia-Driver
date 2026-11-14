@@ -34,7 +34,9 @@
 #define SPECNAMELEN	255
 #define MAXPATHLEN	1024
 
+#ifndef NBBY		/* XNU's <sys/types.h> has it (as __DARWIN_NBBY, 8) */
 #define NBBY		8
+#endif
 #define NBPW		sizeof(int)
 
 /* Bit map related macros. */

@@ -237,7 +237,12 @@ lkpi_nl80211_sta_info_to_str(struct sbuf *s, const char *prefix,
 {
 	int bit, i;
 
+#if defined(LKPI_MACOS)
+	/* uint64_t is unsigned long long on Darwin, uintmax_t unsigned long. */
+	sbuf_printf(s, "%s %#010jx", prefix, (uintmax_t)flags);
+#else
 	sbuf_printf(s, "%s %#010jx", prefix, flags);
+#endif
 
 	i = 0;
 	for (bit = 0; bit < BITS_PER_TYPE(flags); bit++) {
@@ -390,7 +395,11 @@ lkpi_80211_dump_lvif_stas(struct lkpi_vif *lvif, struct sbuf *s, bool dump_queue
 
 		/* Dump queue information. */
 		sbuf_printf(s, " Queue information:\n");
+#if defined(LKPI_MACOS)
+		sbuf_printf(s, "  frms direct tx %ju\n", (uintmax_t)lsta->frms_tx);
+#else
 		sbuf_printf(s, "  frms direct tx %ju\n", lsta->frms_tx);
+#endif
 		for (tid = 0; tid <= IEEE80211_NUM_TIDS; tid++) {
 			struct lkpi_txq *ltxq;
 
@@ -413,9 +422,15 @@ lkpi_80211_dump_lvif_stas(struct lkpi_vif *lvif, struct sbuf *s, bool dump_queue
 			    ltxq->txq_generation,
 			    skb_queue_len_lockless(&ltxq->skbq));
 #endif
+#if defined(LKPI_MACOS)
+			sbuf_printf(s, "         frms_enqueued %ju frms_dequeued %ju "
+			    "frms_tx %ju\n", (uintmax_t)ltxq->frms_enqueued,
+			    (uintmax_t)ltxq->frms_dequeued, (uintmax_t)ltxq->frms_tx);
+#else
 			sbuf_printf(s, "         frms_enqueued %ju frms_dequeued %ju "
 			    "frms_tx %ju\n",
 			    ltxq->frms_enqueued, ltxq->frms_dequeued, ltxq->frms_tx);
+#endif
 		}
 	}
 	wiphy_unlock(hw->wiphy);

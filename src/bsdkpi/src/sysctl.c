@@ -131,17 +131,20 @@ sysctl_add_oid(struct sysctl_ctx_list *clist, struct sysctl_oid_list *parent,
 {
 	struct sysctl_oid *oidp;
 	struct sysctl_ctx_entry *e;
+	size_t dlen = strlen(name) + 1;
 	char *dname;
 
 	oidp = malloc(sizeof(*oidp), M_TEMP, M_WAITOK | M_ZERO);
 	if (oidp == NULL)
 		return (NULL);
-	dname = malloc(strlen(name) + 1, M_TEMP, M_WAITOK);
+	dname = malloc(dlen, M_TEMP, M_WAITOK);
 	if (dname == NULL) {
 		free(oidp, M_TEMP);
 		return (NULL);
 	}
-	strcpy(dname, name);
+	/* Not strcpy(): deprecated for kexts on x86_64 and unavailable on
+	 * arm64 (Kernel.framework string.h). */
+	memcpy(dname, name, dlen);
 	SLIST_INIT(&oidp->oid_children);
 	oidp->oid_parent = parent;
 	oidp->oid_number = nbr;

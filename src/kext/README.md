@@ -37,6 +37,61 @@ make -C src/kext clean
 Useful variables: `KEXT_SDK=/path/to/MacOSX.sdk`, `MIN_OS=11.0`,
 `EMBED_FIRMWARE=0|1`, `V=1`.  The top-level `make kext` forwards here.
 
+Build with Apple clang (`xcrun clang`, the default).  Upstream LLVM 15 and
+later lowers Mach-O global destructors (the `gMetaClass` object every
+`OSDefineMetaClassAndStructors` creates) to `__cxa_atexit()`, which no KPI
+exports; XNU's OSRuntime runs a kext's `__mod_term_func` instead.  A
+non-Apple clang needs `-mllvm -disable-atexit-based-global-dtor-lowering`
+(`CXXFLAGS_EXTRA=`).
+
+### Checking without a Mac
+
+`scripts/xnu-kernel-headers.sh` assembles a stand-in macOS SDK from Apple's
+open-source [xnu](https://github.com/apple-oss-distributions/xnu) and
+[IOPCIFamily](https://github.com/apple-oss-distributions/IOPCIFamily), and
+`check-xnu` compiles every source of the kext against it with the real
+build's flags (`-target <arch>-apple-darwin` replaces `-arch`):
+
+```sh
+scripts/xnu-kernel-headers.sh /src/xnu /src/IOPCIFamily /tmp/xnu-sdk
+make -C src/kext check-xnu XNU_HDRS=/tmp/xnu-sdk [XNU_ARCHS="x86_64 arm64e"]
+make -C src/kext check-xnu-symbols XNU_HDRS=/tmp/xnu-sdk [STACK=real]
+# or let the Makefile assemble it into build/kext/xnu-sdk:
+make -C src/kext check-xnu XNU_SRC=/src/xnu IOPCIFAMILY_SRC=/src/IOPCIFamily
+```
+
+The tree follows Apple's own `installhdrs` rules: the
+`INSTALL_KF_MI_LIST`/`INSTALL_KF_MD_LIST` of every directory xnu's Makefiles
+reach through `INSTINC_SUBDIRS[_ARCH]`, installed under
+`EXPORT_MI_DIR`/`EXPORT_MD_DIR` (which is what merges `bsd/sys` and osfmk
+pieces into `sys/`, `bsd/machine` and `osfmk/machine` into `machine/`,
+`EXTERNAL_HEADERS` and `osfmk/libsa` into the top level) and filtered with
+`unifdef $(KINCFRAME_UNIFDEF)` (`-UKERNEL_PRIVATE -UPRIVATE -DKERNEL
+-UXNU_KERNEL_PRIVATE ...`, read from `makedefs/MakeInc.def`; the real
+`unifdef` when installed, else a built-in equivalent).  So
+`KERNEL_PRIVATE`-only declarations are absent exactly as in the SDK, and the
+`-DKERNEL_PRIVATE` in our flags cannot bring them back.  The tree's
+`MANIFEST` lists every header and its source.  What it cannot reproduce, and
+marks as HAND-WRITTEN STAND-IN:
+
+* MIG output (`mach/thread_act.h`, `mach/task.h`, ...): `mach/thread_act.h`
+  declares the routines the kext uses, copied from `thread_act.defs`; the
+  others only carry MIG's includes.  Other build-generated headers
+  (`libkern/version.h`, `sys/syscall.h`) are `#error` placeholders.
+* iig output (`DriverKit/OSObject.h`, `DriverKit/IOService.h`, ...; iig is
+  not open source): the `.iig` with its class bodies removed and the
+  `<Class>_Methods` macros empty, so class layouts are not the SDK's.
+* `usr/include/TargetConditionals.h` and `os/availability.h` (not in xnu).
+  Only the user-space headers Kernel.framework itself includes are present;
+  a kext that includes anything else from `usr/include` fails here, as it
+  should (on a Mac it would silently get the user-space header).
+
+`check-xnu-symbols` compiles the objects and resolves every external symbol
+against xnu's `config/*.exports` symbol sets for the `OSBundleLibraries` in
+`Info.plist`, IOPCIFamily's `config/IOPCIFamily.exports` and libkmod
+(`scripts/xnu-kext-symbols.sh`).  It is a name-level link check: there is
+no Apple linker, no code signing and no loading here.
+
 The resulting bundle is `build/kext/MT7925.kext` with
 `Contents/Resources/mediatek/mt7925/*.bin` (and a flat copy of each blob,
 see "Firmware" below).
@@ -151,12 +206,45 @@ kexts are linked into the boot kext collection by the bootloader, so:
 * RCU, work queues, tasklets and NAPI are entirely in the C layer; the
   backend only supplies threads, locks and timers for them.
 
+## Kernel KPIs, checked against the headers
+
+What xnu-12377.1.9 and IOPCIFamily-726.0.5 say about the interfaces this port
+was unsure of (headers as installed in Kernel.framework/Headers, exports
+from xnu `config/<Set>[.<arch>[.MacOSX]].exports`):
+
+| KPI | declaration | exported by |
+|---|---|---|
+| `thread_terminate` | `kern_return_t thread_terminate(thread_act_t)`, MIG-generated `<mach/thread_act.h>` (`thread_act.defs`) | `com.apple.kpi.mach` |
+| `THREAD_UNINT` | `#define THREAD_UNINT 0` in `<kern/kern_types.h>` (with `THREAD_TIMED_OUT`, `THREAD_CONTINUE_NULL`); `IOLockSleep[Deadline]()` take it as `UInt32 interType` | macro |
+| `mach_continuous_time` | `uint64_t mach_continuous_time(void)` in `<mach/mach_time.h>` | `com.apple.kpi.mach` |
+| `kernel_task` | `extern task_t kernel_task` in `<kern/task.h>` | `com.apple.kpi.mach` |
+| `PE_parse_boot_argn` | `boolean_t PE_parse_boot_argn(const char *, void *, int max_arg)` in `<pexpert/pexpert.h>` | `com.apple.kpi.iokit` |
+| `OSKextGetCurrentIdentifier` | `const char *OSKextGetCurrentIdentifier(void)` in `<libkern/OSKextLib.h>` ("visible to kexts only") | not a kernel export: defined `__private_extern__` in libkmod.a (`libkern/kmod/c_start.c`), returns `kmod_info.name`; linked by `-lkmod` |
+| IOPCIDevice config/map | `UIntNN configReadNN(IOByteCount)` / `configWriteNN(IOByteCount, v)` are inlines over `extendedConfigReadNN/WriteNN` (the `UInt8 offset` virtuals are `__IOPCIDEVICE_INTERNAL__`); `IOMemoryMap *mapDeviceMemoryWithRegister(UInt8 reg, IOOptionBits = 0)`; `UInt8 getBusNumber()/getDeviceNumber()/getFunctionNumber()`; `setBusMasterEnable()` is deprecated from macOS 12.4 (`setBusLeadEnable()` replaces it); the class is `__kpi_deprecated("Use PCIDriverKit")` | `com.apple.iokit.IOPCIFamily` |
+| `wakeAtTime(AbsoluteTime)` | `virtual IOReturn wakeAtTime(AbsoluteTime)`, also `(UInt32, UInt32 scale = kNanosecondScale)`, `(uint32_t options, AbsoluteTime, AbsoluteTime leeway)`; `AbsoluteTime` is `UInt64` in LP64 kernel code; `AbsoluteTime_to_scalar()` is `KERNEL_PRIVATE` (not usable) | `com.apple.kpi.iokit` |
+| `IODMACommand::withSpecification` | `(SegmentFunction, UInt8 addressBits, UInt64 maxSegment, MappingOptions = kMapped, UInt64 maxTransfer = 0, UInt32 alignment = 1, IOMapper * = NULL, void *refCon = NULL)` and a `SegmentOptions *` overload; returns `OSPtr<IODMACommand>` (a raw pointer without smart pointers) | `com.apple.kpi.iokit` |
+| `thread_policy_set` | `kern_return_t thread_policy_set(thread_act_t, thread_policy_flavor_t, thread_policy_t, mach_msg_type_number_t)` in MIG `<mach/thread_act.h>`; `THREAD_PRECEDENCE_POLICY` in `<mach/thread_policy.h>` | `com.apple.kpi.mach` |
+| `cpu_number` | no public prototype (`kern/cpu_number.h` is `XNU_KERNEL_PRIVATE`) | `com.apple.kpi.unsupported` on x86_64; only `com.apple.kpi.private` on arm64, so `LKPI_OS_HAVE_CPU_NUMBER` is an `#error` there |
+| `thread_block` | `wait_result_t thread_block(thread_continue_t)` in `<kern/sched_prim.h>` | `com.apple.kpi.mach` |
+| kmod info / `_realmain` | `KMOD_EXPLICIT_DECL(name, version, start, stop)` in `<mach/kmod.h>` defines `kmod_info`; libkmod's `_start`/`_stop` call through `extern kmod_start_func_t *_realmain` / `kmod_stop_func_t *_antimain`, which `MT7925_info.c` defines (NULL); `_kext_apple_cc` is not referenced | libkmod.a |
+
+Other Kernel.framework facts the check turned up: `strrchr()` is declared
+only for `XNU_KERNEL_PRIVATE`; `strcpy()`/`strncpy()`/`strcat()`/`strncat()`
+are deprecated for kexts on x86_64 and `__unavailable` on arm64 (and
+`strcpy` is a three-argument macro under `__XNU_FORTIFY_SOURCE`); there is
+no `<stdio.h>`; `<sys/cdefs.h>`, `<ptrcheck.h>` and `<sys/_endian.h>` define
+`__unused`, `__counted_by`, `htonl` and friends that the Linux and FreeBSD
+headers also define.  With the default knobs `com.apple.kpi.bsd` and
+`com.apple.kpi.unsupported` resolve no symbol of the kext.
+
 ## Compile-time knobs
 
 Set with `make CXXFLAGS_EXTRA=...` or by editing `lkpi_os_iokit.hpp`:
 `LKPI_OS_HAVE_THREAD_POLICY`, `LKPI_OS_HAVE_CPU_NUMBER`,
 `LKPI_OS_HAVE_THREAD_BLOCK`, `LKPI_OS_HAVE_MACH_CONTINUOUS_TIME`,
-`LKPI_OS_COHERENT_INHIBIT_CACHE`, `LKPI_OS_PAGES_PHYS_MASK`.
+`LKPI_OS_COHERENT_INHIBIT_CACHE`, `LKPI_OS_PAGES_PHYS_MASK`.  Per the table
+above, `thread_policy_set()` and `thread_block()` are declared and exported
+for kexts; `cpu_number()` only on x86_64.
 
 Boot-args: `mt7925_debug=1` (enable debug log level),
 `mt7925_<param>=<value>` overrides a `Parameters` entry (e.g.

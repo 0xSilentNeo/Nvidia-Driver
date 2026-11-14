@@ -12,6 +12,19 @@
  *             lkpi_runtime_fini() + lkpi_os_stop() (both refcounted).
  */
 
+/*
+ * Kernel.framework marks IOPCIDevice (and IOPCIEventSource)
+ * __kpi_deprecated("Use PCIDriverKit").  That is a real deprecation for
+ * kexts: sys/cdefs.h makes it __deprecated_msg() for KERNEL &&
+ * !KERNEL_PRIVATE, and -DKERNEL_PRIVATE does not undo it because the SDK
+ * headers were unifdef'd.  A kext has no other way to drive a PCI function,
+ * and clang propagates the attribute through typedefs, so the warning is
+ * turned off for this translation unit (which therefore also hides other
+ * deprecations here: re-check with -Wdeprecated-declarations when MIN_OS is
+ * raised, e.g. setBusMasterEnable() is deprecated from macOS 12.4).
+ */
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 #include <IOKit/IOLib.h>
 #include <IOKit/pwr_mgt/RootDomain.h>
 #include <IOKit/IOMessage.h>

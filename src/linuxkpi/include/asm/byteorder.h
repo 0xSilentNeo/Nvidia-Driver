@@ -88,6 +88,11 @@ static inline void be16_add_cpu(__be16 *var, u16 val) { *var = cpu_to_be16(be16_
 static inline void be32_add_cpu(__be32 *var, u32 val) { *var = cpu_to_be32(be32_to_cpu(*var) + val); }
 static inline void cpu_to_le32_array(u32 *buf, unsigned int words) { (void)buf; (void)words; }
 static inline void le32_to_cpu_array(u32 *buf, unsigned int words) { (void)buf; (void)words; }
+/* XNU's <sys/_endian.h> has its own (equivalent) spellings. */
+#undef htons
+#undef ntohs
+#undef htonl
+#undef ntohl
 #define htons(x) cpu_to_be16(x)
 #define ntohs(x) be16_to_cpu(x)
 #define htonl(x) cpu_to_be32(x)

@@ -655,7 +655,8 @@ if_setname(if_t ifp, const char *name)
 {
 	if (strlen(name) > sizeof(ifp->if_xname) - 1)
 		return (ENAMETOOLONG);
-	strcpy(ifp->if_xname, name);
+	/* Not strcpy(): unavailable to kexts on arm64 (Kernel.framework). */
+	strlcpy(ifp->if_xname, name, sizeof(ifp->if_xname));
 	return (0);
 }
 

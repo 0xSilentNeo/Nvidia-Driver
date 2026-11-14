@@ -12,6 +12,19 @@
  * cpu_count is 1, ...).
  */
 
+/*
+ * Kernel.framework marks IOPCIDevice (and IOPCIEventSource)
+ * __kpi_deprecated("Use PCIDriverKit").  That is a real deprecation for
+ * kexts: sys/cdefs.h makes it __deprecated_msg() for KERNEL &&
+ * !KERNEL_PRIVATE, and -DKERNEL_PRIVATE does not undo it because the SDK
+ * headers were unifdef'd.  A kext has no other way to drive a PCI function,
+ * and clang propagates the attribute through typedefs, so the warning is
+ * turned off for this translation unit (which therefore also hides other
+ * deprecations here: re-check with -Wdeprecated-declarations when MIN_OS is
+ * raised, e.g. setBusMasterEnable() is deprecated from macOS 12.4).
+ */
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
 #include <IOKit/IOService.h>
@@ -29,9 +42,9 @@
 #include <libkern/c++/OSObject.h>
 #include <kern/clock.h>
 #include <kern/thread.h>
-#include <kern/sched_prim.h>	/* THREAD_UNINT, THREAD_TIMED_OUT, thread_block */
-#include <kern/task.h>
-#include <mach/thread_act.h>	/* thread_terminate() */
+#include <kern/sched_prim.h>	/* thread_block(); THREAD_UNINT etc. are kern/kern_types.h */
+#include <kern/task.h>		/* kernel_task */
+#include <mach/thread_act.h>	/* thread_terminate(), thread_policy_set() (MIG-generated) */
 #include <kern/debug.h>
 #include <mach/mach_time.h>
 #include <mach/mach_types.h>
@@ -48,17 +61,11 @@
 
 #include "lkpi_os_iokit.hpp"
 
-/* Prototypes the public headers may not expose but the KPI exports. */
 extern "C" {
-#if LKPI_OS_HAVE_MACH_CONTINUOUS_TIME
-uint64_t mach_continuous_time(void);
-#endif
 #if LKPI_OS_HAVE_CPU_NUMBER
+/* The KPI exports it (com.apple.kpi.unsupported, x86_64) but its header,
+ * kern/cpu_number.h, is XNU_KERNEL_PRIVATE and absent from Kernel.framework. */
 int cpu_number(void);
-#endif
-#if LKPI_OS_HAVE_THREAD_POLICY
-kern_return_t thread_policy_set(thread_t thread, thread_policy_flavor_t flavor,
-    thread_policy_t policy_info, mach_msg_type_number_t count);
 #endif
 /* Advances `jiffies`; implemented in the C layer (linux/jiffies.h). */
 void lkpi_jiffies_tick(void);
@@ -107,15 +114,22 @@ lkpi_ns_to_abs(uint64_t ns)
 	return abs;
 }
 
-/* AbsoluteTime is a uint64_t on every 64-bit SDK but spelled through a
- * typedef; use the official accessor so this also compiles if it is ever a
- * struct again. */
+/* AbsoluteTime is UInt64 in LP64 kernel code (libkern/OSTypes.h, which then
+ * defines ABSOLUTETIME_SCALAR_TYPE); the struct form (UnsignedWide) is only
+ * left for 32-bit user space.  AbsoluteTime_to_scalar() is no help: it is in
+ * libkern/OSBase.h under #ifdef KERNEL_PRIVATE, which the SDK's unifdef
+ * strips from Kernel.framework/Headers. */
+static_assert(sizeof(AbsoluteTime) == sizeof(uint64_t), "AbsoluteTime must be a 64-bit scalar");
 static inline AbsoluteTime
 lkpi_make_abstime(uint64_t abs)
 {
+#if defined(ABSOLUTETIME_SCALAR_TYPE) && ABSOLUTETIME_SCALAR_TYPE
+	return (AbsoluteTime)abs;
+#else
 	AbsoluteTime at;
-	AbsoluteTime_to_scalar(&at) = abs;
+	memcpy(&at, &abs, sizeof(at));
 	return at;
+#endif
 }
 
 /* Deadline (absolute mach time) that is `ns` from now. */
@@ -1875,11 +1889,16 @@ lkpi_fw_request_one(const char *kext_id, const char *name, void **data, size_t *
 	return 0;
 }
 
+/* Not strrchr(): current Kernel.framework string.h (checked against
+ * xnu-12377) declares it only for XNU_KERNEL_PRIVATE, so kexts cannot. */
 static const char *
 lkpi_basename(const char *name)
 {
-	const char *slash = strrchr(name, '/');
-	return slash ? slash + 1 : name;
+	const char *base = name;
+	for (const char *p = name; *p; p++)
+		if (*p == '/')
+			base = p + 1;
+	return base;
 }
 
 int

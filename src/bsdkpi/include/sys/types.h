@@ -57,6 +57,12 @@ typedef char		*caddr_t;
 #endif
 #endif /* !__APPLE__ */
 
+#if defined(__APPLE__)
+/* FreeBSD's <machine/_types.h> and glibc's <bits/types.h> have these; XNU
+ * only spells them __darwin_*_t / uintmax_t. */
+typedef intmax_t	__intmax_t;
+typedef uintmax_t	__uintmax_t;
+#endif
 typedef const char	*c_caddr_t;
 typedef uint8_t		__uint8_t;
 typedef uint16_t	__uint16_t;

@@ -119,9 +119,8 @@
  * printf()/log() implement them (src/printf.c).  lkpi/bsd.h's plain printf
  * variant is only seen by translation units that never include this file.
  */
-#ifndef __printflike
+#undef __printflike	/* XNU's <sys/cdefs.h> has the plain-printf kind */
 #define __printflike(a, b) __attribute__((format(freebsd_kprintf, a, b)))
-#endif
 #ifndef __scanflike
 #define __scanflike(a, b) __attribute__((format(scanf, a, b)))
 #endif

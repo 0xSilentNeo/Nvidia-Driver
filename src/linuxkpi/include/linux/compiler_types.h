@@ -26,6 +26,19 @@
 #define __aligned_largest __attribute__((aligned))
 #define __always_unused	__attribute__((unused))
 #define __maybe_unused	__attribute__((unused))
+/*
+ * XNU's <sys/cdefs.h> (and <ptrcheck.h>, where __counted_by() is a
+ * -fbounds-safety pointer annotation) define some of these names too, and
+ * Kernel.framework's <string.h> pulls them in before this header.  The Linux
+ * meaning is the one this layer is written for, so it replaces theirs.
+ */
+#undef __used
+#undef __unused
+#undef __pure
+#undef __cold
+#undef __weak
+#undef __deprecated
+#undef __counted_by
 #define __used		__attribute__((used))
 #define __unused	__attribute__((unused))
 #define __must_check	__attribute__((warn_unused_result))

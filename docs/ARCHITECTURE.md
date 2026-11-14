@@ -103,6 +103,17 @@ what they expect from the 802.11 stack; with `MAC80211_STUB=1` the phase-1
 recording stub (`src/linuxkpi/src/mac80211_stub.c`) stands in for the stack
 and that list must be empty.
 
+`make -C src/kext check-xnu XNU_HDRS=...` closes the remaining gap on the
+macOS side: `scripts/xnu-kernel-headers.sh` assembles a stand-in macOS SDK
+(Kernel.framework/Headers) from Apple's open-source xnu and IOPCIFamily,
+following xnu's own header-install rules, and every source of the kext (the
+IOKit C++, the C layer and, separately, the real 802.11 stack) is compiled
+against it with the kext's flags, for x86_64 and arm64e.
+`check-xnu-symbols` then resolves every external symbol of the objects
+against the KPI exports lists of the bundles in `Info.plist`.  See
+`src/kext/README.md` ("Checking without a Mac") for what the stand-in tree
+cannot reproduce (MIG and iig output, no Apple linker).
+
 `scripts/api-inventory.py` regenerates `docs/LINUX_API_INVENTORY.md`, the
 list of every external symbol the driver uses and whether the layer provides
 it.
